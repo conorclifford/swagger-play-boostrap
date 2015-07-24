@@ -2,8 +2,8 @@ package swaggerboot
 
 
 object Method {
-  def apply(httpMethod: String, name: String, params: Seq[Param], body: Option[Body]): Method = {
-    body.fold(BodyLessMethod(httpMethod, name, params): Method)(bod => MethodExpectingBody(httpMethod, name, params, bod))
+  def apply(httpMethod: String, name: String, params: Seq[Param], headerParams: Seq[Param], body: Option[Body]): Method = {
+    body.fold(BodyLessMethod(httpMethod, name, params, headerParams): Method)(bod => MethodExpectingBody(httpMethod, name, params, headerParams, bod))
   }
 }
 
@@ -11,6 +11,7 @@ sealed trait Method {
   def httpMethod: String
   def name: String
   def params: Seq[Param]
+  def headerParams: Seq[Param]
   def scalaImpl: String
   def bodyType: Option[String]
 
@@ -19,19 +20,20 @@ sealed trait Method {
   }
 }
 
-case class BodyLessMethod(override val httpMethod: String, override val name: String, override val params: Seq[Param]) extends Method {
+case class BodyLessMethod(override val httpMethod: String, override val name: String, override val params: Seq[Param], override val headerParams: Seq[Param]) extends Method {
 
   override val bodyType = None
 
   override lazy val scalaImpl =
     s"""
        |  def $name(${params.mkString(", ")}) = Action {
+       |    ${if(headerParams.nonEmpty) headerParams.mkString("// header-param: ", "\n    //", "\n") else ""}
        |    InternalServerError("not implemented") // FIXME needs implementation
        |  }
      """.stripMargin
 }
 
-case class MethodExpectingBody(override val httpMethod: String, override val name: String, override val params: Seq[Param], body: Body) extends Method {
+case class MethodExpectingBody(override val httpMethod: String, override val name: String, override val params: Seq[Param], override val headerParams: Seq[Param], body: Body) extends Method {
 
   override val bodyType = Some(body.typeName)
 
@@ -40,6 +42,8 @@ case class MethodExpectingBody(override val httpMethod: String, override val nam
   override lazy val scalaImpl =
     s"""
        |  def $name(${params.mkString(", ")}) = Action(parse.json) { request =>
+       |    ${if(headerParams.nonEmpty) headerParams.mkString("// header-param: ", "\n    //", "\n") else ""}
+       |
        |    def ${name}OnValid(body: $bodyModelName) = {
        |      InternalServerError("not implemented") // FIXME needs implementation
        |    }

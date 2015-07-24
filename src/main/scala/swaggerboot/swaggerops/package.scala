@@ -1,6 +1,6 @@
 package swaggerboot
 
-import io.swagger.models.parameters.{BodyParameter, PathParameter, QueryParameter, Parameter}
+import io.swagger.models.parameters._
 import io.swagger.models.properties.{ObjectProperty, ArrayProperty, RefProperty, Property}
 import io.swagger.models.{Operation, Path, Model, Swagger}
 import scala.collection.JavaConverters._
@@ -48,6 +48,7 @@ package object swaggerops {
             (ModelAttribute(propName, scalaType, required), error)
           }
 
+          // FIXME - change this to retain attribute order as per Swagger input...
           val (attrs, errors) = attrsAndErrors.foldLeft((Seq.empty[ModelAttribute], Seq.empty[ParseError])) {
             case ((attrs, errors), (attr, errOpt)) =>
               (attrs :+ attr, errOpt.fold(errors)(errors :+ _))
@@ -145,7 +146,7 @@ package object swaggerops {
           case x                        => x.toLowerCase
         }
 
-        val (params, paramErrors) = op.parameters.filterNot(_.getIn == "body").map { param =>
+        val (params, paramErrors) = op.parameters.filter(p => Seq("query", "path").contains(p.getIn)).map { param =>
           val (typeName, error) = param.typeName match {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
@@ -168,7 +169,18 @@ package object swaggerops {
           case None => (None, None)
         }
 
-        (Method(opName, methodName, params, bodyOpt), paramErrors ++ bodyError.toList)
+        val (headerParams, headerErrors) = op.parameters.filter(_.getIn == "header").map { param =>
+          val (typeName, error) = param.typeName match {
+            case -\/(parseError) => (parseError.replacement, Some(parseError))
+            case \/-(tname) => (tname, None: Option[ParseError])
+          }
+          (Param(param.getName, typeName, param.getRequired), error)
+        }.foldLeft((Seq.empty[Param], Seq.empty[ParseError])) {
+          case ((params, errors), (param, errOpt)) =>
+            (params :+ param, errOpt.fold(errors)(errors :+ _))
+        }
+
+        (Method(opName, methodName, params, headerParams, bodyOpt), paramErrors ++ headerErrors ++ bodyError.toList)
       }.foldLeft((Seq.empty[Method], Seq.empty[ParseError])) {
         case ((methods, allErrors), (method, errors)) =>
           (methods :+ method, allErrors ++ errors)
@@ -205,6 +217,7 @@ package object swaggerops {
       case p: QueryParameter => scalaType(p.getType)
       case p: PathParameter => scalaType(p.getType)
       case p: BodyParameter => \/-(p.getSchema.getReference)
+      case p: HeaderParameter => scalaType(p.getType)
       case _ =>
         -\/(ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}"))
     }
