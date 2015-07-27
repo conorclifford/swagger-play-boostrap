@@ -1,9 +1,13 @@
 package swaggerboot
 
+import io.swagger.models.auth.SecuritySchemeDefinition
 import io.swagger.models.parameters._
 import io.swagger.models.properties.{ObjectProperty, ArrayProperty, RefProperty, Property}
 import io.swagger.models.{Operation, Path, Model, Swagger}
+import scala.collection
 import scala.collection.JavaConverters._
+import scala.collection.generic.Subtractable
+import scala.collection.mutable
 
 import scalaz._
 
@@ -26,12 +30,14 @@ package object swaggerops {
     def routedControllersWithErrors(): (Iterable[RoutedController], Iterable[ParseError]) = {
       swagger.getPaths.asScala.map {
         case (pathStr, path) =>
-          path.toController(basePath, pathStr)
+          path.toController(swagger, basePath, pathStr)
       }.foldLeft((Seq.empty[RoutedController], Seq.empty[ParseError])) {
         case ((controllers, allErrors), (controller, errors)) =>
           (controllers :+ controller, allErrors ++ errors)
       }
     }
+
+    def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
     def definitions(): Iterable[ModelDefinition] = definitionsWithErrors._1
 
@@ -93,7 +99,7 @@ package object swaggerops {
   }
 
   implicit class ModelOps(val model: Model) extends AnyVal {
-    def properties() = model.getProperties.asScala
+    def properties() = Option(model.getProperties).map(_.asScala.toMap).getOrElse(Map.empty)
   }
 
   implicit class PropertyOps(val property: Property) extends AnyVal {
@@ -133,8 +139,9 @@ package object swaggerops {
     def POST(): Option[NamedOperation] = Option(path.getPost()).map("POST" -> _)
     def DELETE(): Option[NamedOperation] = Option(path.getDelete()).map("DELETE" -> _)
     def operations(): Seq[NamedOperation] = Seq(GET, PUT, PATCH, POST, DELETE).flatten
+    def parameters(): Seq[Parameter] = Option(path.getParameters).map(_.asScala).getOrElse(Nil)
 
-    def toController(basePath: Option[String], pathStr: String): (RoutedController, Seq[ParseError]) = {
+    def toController(swagger: Swagger, basePath: Option[String], pathStr: String): (RoutedController, Seq[ParseError]) = {
       val controllerName = makeControllerName(pathStr)
       val singleInstance = isSingleInstance(pathStr)
       val (methods, errors) = path.operations.map { case (opName, op: Operation) =>
@@ -146,7 +153,13 @@ package object swaggerops {
           case x                        => x.toLowerCase
         }
 
-        val (params, paramErrors) = op.parameters.filter(p => Seq("query", "path").contains(p.getIn)).map { param =>
+        // Path parameters apply to all Operations (can be overriden (by name), but cannot be removed)
+        val allApplicableParameters = parameters.filterNot {
+          pp =>
+            op.parameters.exists(_.getName == pp.getName)
+        } ++ op.parameters
+
+        val (params, paramErrors) = allApplicableParameters.filter(p => Seq("query", "path").contains(p.getIn)).map { param =>
           val (typeName, error) = param.typeName match {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
@@ -157,8 +170,8 @@ package object swaggerops {
             (params :+ param, errOpt.fold(errors)(errors :+ _))
         }
 
-        // This assumes a single body parameter only...
-        val (bodyOpt: Option[Body], bodyError: Option[ParseError]) = op.parameters.find(_.getIn == "body").map { param =>
+        // This assumes a single body parameter only.
+        val (bodyOpt: Option[Body], bodyError: Option[ParseError]) = allApplicableParameters.find(_.getIn == "body").map { param =>
           val (typeName, error) = param.typeName match {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None)
@@ -169,7 +182,7 @@ package object swaggerops {
           case None => (None, None)
         }
 
-        val (headerParams, headerErrors) = op.parameters.filter(_.getIn == "header").map { param =>
+        val (headerParams, headerErrors) = allApplicableParameters.filter(_.getIn == "header").map { param =>
           val (typeName, error) = param.typeName match {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
@@ -180,7 +193,19 @@ package object swaggerops {
             (params :+ param, errOpt.fold(errors)(errors :+ _))
         }
 
-        (Method(opName, methodName, params, headerParams, bodyOpt), paramErrors ++ headerErrors ++ bodyError.toList)
+        // Produces list can override swagger spec. wide (including wiping, with local empty list)...
+        val produces = (Option(op.getProduces) orElse Option(swagger.getProduces)).map(_.asScala).getOrElse(Nil)
+
+        (
+          Method(
+            httpMethod = opName,
+            name = methodName,
+            params = params,
+            headerParams = headerParams,
+            produces = produces,
+            body = bodyOpt),
+          paramErrors ++ headerErrors ++ bodyError.toList
+        )
       }.foldLeft((Seq.empty[Method], Seq.empty[ParseError])) {
         case ((methods, allErrors), (method, errors)) =>
           (methods :+ method, allErrors ++ errors)
@@ -210,16 +235,36 @@ package object swaggerops {
 
   implicit class OperationOps(val op: Operation) extends AnyVal {
     def parameters(): Seq[Parameter] = Option(op.getParameters).map(_.asScala).getOrElse(Nil)
+    def produces(): Seq[String] = Option(op.getProduces).map(_.asScala).getOrElse(Nil)
+    def security(): Seq[Map[String, Seq[String]]] = Option(op.getSecurity).map(
+      _.asScala.toSeq.map(
+        _.asScala.toMap.mapValues(
+          _.asScala.toSeq
+        )
+      )
+    ).getOrElse(Nil)
   }
 
   implicit class ParameterOps(val param: Parameter) extends AnyVal {
     def typeName(): ParseError \/ String = param match {
       case p: QueryParameter => scalaType(p.getType)
       case p: PathParameter => scalaType(p.getType)
-      case p: BodyParameter => \/-(p.getSchema.getReference)
+      case p: BodyParameter => getReference(p)
       case p: HeaderParameter => scalaType(p.getType)
       case _ =>
         -\/(ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}"))
+    }
+
+    private def getReference(p: BodyParameter): ParseError \/ String = {
+      val refOpt = for {
+        schema <- Option(p.getSchema)
+        ref <- Option(schema.getReference)
+      } yield { ref }
+
+      refOpt match {
+        case None => -\/(ParseError("Missing Schema/Ref for a Body Parameter"))
+        case Some(ref) => \/-(ref)
+      }
     }
 
     private def scalaType(swaggerType: String): ParseError \/ String = swaggerType match {

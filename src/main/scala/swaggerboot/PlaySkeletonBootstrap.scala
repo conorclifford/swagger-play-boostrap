@@ -3,6 +3,7 @@ package swaggerboot
 import java.io.{File, PrintWriter}
 
 import io.swagger.models.Swagger
+import io.swagger.models.auth.OAuth2Definition
 import io.swagger.parser.SwaggerParser
 
 import swaggerops._
@@ -32,6 +33,14 @@ object PlaySkeletonBootstrap extends App {
   }
 
   val swagger: Swagger = new SwaggerParser().read(swaggerSpec)
+
+  // FIXME
+//  swagger.securityDefinitions.foreach {
+//    case (name, oauth2: OAuth2Definition) =>
+//      println(s"Security defn: OAUTH2: name = $name, flow = ${oauth2.getFlow}, scopes = ${oauth2.getScopes}")
+//    case (name, obj) =>
+//      println(s"Security defn: ${obj.getClass.getName}, name = $name")
+//  }
 
   val confDir = new File(outputDir, "conf")
   val appDir = new File(outputDir, "app")
