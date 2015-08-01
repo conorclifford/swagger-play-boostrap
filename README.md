@@ -1,6 +1,8 @@
-# swagger-play-bootstrap
+# swagger-play-boostrap
 
 **The Wrong way to use Swagger within [Play](http://www.playframework.com).**
+
+(hence the intentional typo in project name)
 
 A very simple (rough, incomplete, etc.) tool to bootstrap some useful files for a Play application from a swagger.yaml file.
 
