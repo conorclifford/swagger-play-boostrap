@@ -12,7 +12,7 @@ This is most likely the wrong way to integrate API-first (using Swagger) design 
 
 ```
 $ sbt assembly
-$ scala target/scala-2.11/swagger-play-bootstrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output
+$ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output
 ```
 
 ## Notes
