@@ -3,15 +3,14 @@ package swaggerboot
 import io.swagger.models.auth.SecuritySchemeDefinition
 import io.swagger.models.parameters._
 import io.swagger.models.properties.{ObjectProperty, ArrayProperty, RefProperty, Property}
-import io.swagger.models.{Operation, Path, Model, Swagger}
-import scala.collection
+import io.swagger.models._
+import scala.annotation.tailrec
 import scala.collection.JavaConverters._
-import scala.collection.generic.Subtractable
-import scala.collection.mutable
 
 import scalaz._
+import Scalaz._
 
-case class ParseError(msg: String, replacement: String = "FIXME", required: Boolean = false)
+case class ParseError(msg: String, replacement: String = "play.api.libs.json.JsValue", required: Boolean = false)
 
 //
 // FIXME code in this file is overly complex and bit of a mess
@@ -39,7 +38,37 @@ package object swaggerops {
 
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
-    def definitions(): Iterable[ModelDefinition] = definitionsWithErrors._1
+    def definitions(withGraphWarnings: Boolean = false): Seq[ModelDefinition] = {
+      val unsorted = definitionsWithErrors._1
+      val names = unsorted.map(_.name).toSet
+
+      // calculate the referenced definitions for each definition...
+      val defsWithRefNames: Seq[(ModelDefinition, Seq[String])] = unsorted.map { d =>
+        d -> d.attributes.flatMap(a => names.find(n => a.scalaType contains n))
+      }.toSeq.sortBy(_._2.size)
+
+      @tailrec
+      def dependencySort(unprocessed: Seq[(ModelDefinition, Seq[String])], selected: Seq[ModelDefinition], prev: Option[ModelDefinition]): Seq[ModelDefinition] = {
+        unprocessed match {
+          case Nil =>
+            selected
+          case (defn, refNames) +: tail =>
+            if (prev.exists(_ == defn)) {
+              if (withGraphWarnings) {
+                System.err.println(s"WARN - potential closed loop in Model '${defn.name}' dependencies - check generated JsonOps for manual corrections on this")
+              }
+              dependencySort(tail, selected :+ defn, prev = None)
+            } else if (refNames.exists(n => !selected.map(_.name).contains(n))) {
+              // retain in unprocessed, and track to stop infinite loops.
+              dependencySort(tail :+ (defn, refNames), selected, prev = Some(defn))
+            } else {
+              dependencySort(tail, selected :+ defn, prev = None)
+            }
+        }
+      }
+
+      dependencySort(defsWithRefNames, Nil, None)
+    }
 
     def definitionsWithErrors(): (Iterable[ModelDefinition], Iterable[ParseError]) = {
       val typesForPatching = routedControllers.flatMap(_.methods.filter(_.httpMethod == "PATCH").flatMap(_.bodyType)).toSet
@@ -80,22 +109,54 @@ package object swaggerops {
 
     def routesFile(): String = routedControllers.toSeq.sortBy(_.path).map(_.routesFileEntries.mkString("\n")).mkString("\n\n")
 
-    def modelsFile(): String =
-      s"""package models
+    def modelsFile(packageName: String): String =
+      s"""package $packageName
          |
-         |${definitions.map(_.scalaClassImpl).mkString("\n")}
+         |${definitions().map(_.scalaClassImpl).mkString("\n")}
          """.stripMargin
 
-    def jsonFile(): String =
-      s"""package models
+    def jsonFile(packageName: String): String = {
+      s"""package $packageName
          |
          |import play.api.libs.json._
          |import play.api.libs.functional.syntax._
          |
          |object JsonOps {
-         |  ${definitions.map(_.playJsonImpl).mkString("  \n")}
+         |  ${definitions(true).map(_.playJsonImpl).mkString("  \n")}
           |}
        """.stripMargin
+    }
+
+    def clientFile(packageName: String): String = {
+
+      def toIdentifier(name: String) = name.head.toLower +: name.tail
+
+      s"""package $packageName
+         |
+         |import play.api.libs.json.Json
+         |
+         |import scala.concurrent.{ExecutionContext, Future}
+         |import scalaz._
+         |import Scalaz._
+         |
+         |object Result {
+         |  case class Success[B](responseCode: Int, message: Option[String], body: Option[B] = None)
+         |  case class Error[B](responseCode: Int, message: Option[String] = None, body: Option[B] = None)
+         |}
+         |
+         |${controllers.map(_.clientTrait).mkString("\n")}
+         |
+         |class Client(baseUrl: String) {
+         |  import JsonOps._
+         |  import play.api.Play.current
+         |
+         |${Indenter.indent(controllers.map(rc => s"val ${toIdentifier(rc.name)}: ${rc.name}Client = ${rc.name}Client").mkString("\n"))}
+         |
+         |${Indenter.indent(controllers.map(_.clientImpl).mkString("\n"))}
+         |}
+       """.stripMargin
+    }
+
   }
 
   implicit class ModelOps(val model: Model) extends AnyVal {
@@ -105,19 +166,19 @@ package object swaggerops {
   implicit class PropertyOps(val property: Property) extends AnyVal {
     def scalaType(force: Boolean = false): ParseError \/ (String, Boolean) = {
       val rawType: ParseError \/ String = property.getType match {
-        case "string" => \/-("String")
-        case "integer" => \/-("Int")
-        case "boolean" => \/-("Boolean")
-        case "ref" => \/-(getType(property.asInstanceOf[RefProperty]))
+        case "string" => "String".right
+        case "integer" => "Int".right
+        case "boolean" => "Boolean".right
+        case "ref" => getType(property.asInstanceOf[RefProperty]).right
         case "array" => {
           getType(property.asInstanceOf[ArrayProperty]).fold(
-            l = error => -\/(error.copy(replacement=s"Seq[${error.replacement}]", required = property.getRequired)),
-            r = v => \/-(s"Seq[$v]")
+            l = error => error.copy(replacement=s"Seq[${error.replacement}]", required = property.getRequired).left,
+            r = v => s"Seq[$v]".right
           )
         }
         case "object" => getType(property.asInstanceOf[ObjectProperty])
         case x =>
-          -\/(ParseError(s"Unsupported property type '$x'"))
+          ParseError(s"Unsupported property type '$x'").left
       }
 
       rawType.map(_ -> property.getRequired)
@@ -126,7 +187,7 @@ package object swaggerops {
     private def getType(arrayProp: ArrayProperty): ParseError \/ String = arrayProp.getItems.scalaType(true).map(_._1)
     private def getType(refProp: RefProperty): String = refProp.getSimpleRef
     private def getType(objProp: ObjectProperty): ParseError \/ String = {
-      -\/(ParseError("currently incapable of handing embedded properties in an object", required = objProp.getRequired))
+      ParseError("currently incapable of handing embedded properties in an object", required = objProp.getRequired).left
     }
   }
 
@@ -144,16 +205,18 @@ package object swaggerops {
     def toController(swagger: Swagger, basePath: Option[String], pathStr: String): (RoutedController, Seq[ParseError]) = {
       val controllerName = makeControllerName(pathStr)
       val singleInstance = isSingleInstance(pathStr)
+      val scalaPath = basePath.fold(pathStr)(bp => s"$bp$pathStr".replace("//", "/")).replace("{", ":").replace("}", "")
+
       val (methods, errors) = path.operations.map { case (opName, op: Operation) =>
         val methodName = opName match {
           case "GET" if singleInstance  => "get"
           case "GET"                    => "list"
-          case "PUT" if singleInstance  => "upsert"
-          case "PUT"                    => "upsertUnknown"
+          case "PUT" if singleInstance  => "put"
+          case "PUT"                    => "putUnknown"
           case x                        => x.toLowerCase
         }
 
-        // Path parameters apply to all Operations (can be overriden (by name), but cannot be removed)
+        // Path parameters apply to all Operations (can be overridden (by name), but cannot be removed)
         val allApplicableParameters = parameters.filterNot {
           pp =>
             op.parameters.exists(_.getName == pp.getName)
@@ -164,7 +227,11 @@ package object swaggerops {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
           }
-          (Param(param.getName, typeName, param.getRequired), error)
+          val paramType = param.getIn match {
+            case "query" => QueryParam
+            case "path" => PathParam
+          }
+          (Param(param.getName, typeName, param.getRequired, paramType), error)
         }.foldLeft((Seq.empty[Param], Seq.empty[ParseError])) {
           case ((params, errors), (param, errOpt)) =>
             (params :+ param, errOpt.fold(errors)(errors :+ _))
@@ -187,7 +254,7 @@ package object swaggerops {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
           }
-          (Param(param.getName, typeName, param.getRequired), error)
+          (Param(param.getName, typeName, param.getRequired, HeaderParam), error)
         }.foldLeft((Seq.empty[Param], Seq.empty[ParseError])) {
           case ((params, errors), (param, errOpt)) =>
             (params :+ param, errOpt.fold(errors)(errors :+ _))
@@ -196,13 +263,31 @@ package object swaggerops {
         // Produces list can override swagger spec. wide (including wiping, with local empty list)...
         val produces = (Option(op.getProduces) orElse Option(swagger.getProduces)).map(_.asScala).getOrElse(Nil)
 
+        val returnValues =
+          op.responses().toSeq.map { case (rcode, resp) =>
+
+            val optReturnType = Option(resp.getSchema).map {
+              _.scalaType().fold(_.replacement, _._1)
+            }.map {
+              stype => ReturnType(stype, stype.startsWith("Seq["))
+            }
+
+            ReturnValue(
+              rcode = rcode.toInt,
+              description = Option(resp.getDescription),
+              returnType = optReturnType
+            )
+          }.toSet
+
         (
           Method(
+            routePath = scalaPath,
             httpMethod = opName,
             name = methodName,
             params = params,
             headerParams = headerParams,
             produces = produces,
+            returnValues = returnValues,
             body = bodyOpt),
           paramErrors ++ headerErrors ++ bodyError.toList
         )
@@ -211,7 +296,6 @@ package object swaggerops {
           (methods :+ method, allErrors ++ errors)
       }
 
-      val scalaPath = basePath.fold(pathStr)(bp => s"$bp$pathStr".replace("//", "/")).replace("{", ":").replace("}", "")
       (RoutedController(scalaPath, controllerName, methods), errors)
     }
 
@@ -228,7 +312,7 @@ package object swaggerops {
 
     private def singularize(str: String) = if (str.endsWith("s")) str.dropRight(1) else str
 
-    private def isSingleInstance(path: String): Boolean = path.endsWith("}")
+    private def isSingleInstance(path: String): Boolean = path.endsWith("}") || path.endsWith("}/")
 
     private def resourceToClassName(name: String) = name.split("-").map(w => w.take(1).toUpperCase + w.drop(1)).mkString("")
   }
@@ -243,6 +327,8 @@ package object swaggerops {
         )
       )
     ).getOrElse(Nil)
+
+    def responses(): Map[String, Response] = Option(op.getResponses).map(_.asScala.toMap).getOrElse(Map.empty)
   }
 
   implicit class ParameterOps(val param: Parameter) extends AnyVal {
@@ -252,7 +338,7 @@ package object swaggerops {
       case p: BodyParameter => getReference(p)
       case p: HeaderParameter => scalaType(p.getType)
       case _ =>
-        -\/(ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}"))
+        ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}").left
     }
 
     private def getReference(p: BodyParameter): ParseError \/ String = {
@@ -262,17 +348,17 @@ package object swaggerops {
       } yield { ref }
 
       refOpt match {
-        case None => -\/(ParseError("Missing Schema/Ref for a Body Parameter"))
-        case Some(ref) => \/-(ref)
+        case None => ParseError("Missing Schema/Ref for a Body Parameter").left
+        case Some(ref) => ref.right
       }
     }
 
     private def scalaType(swaggerType: String): ParseError \/ String = swaggerType match {
-      case "string" => \/-("String")
-      case "integer" => \/-("Int")
-      case "boolean" => \/-("Boolean")
+      case "string" => "String".right
+      case "integer" => "Int".right
+      case "boolean" => "Boolean".right
       case x =>
-        -\/(ParseError("Unsupported parameter type '$x'", replacement = s"FIXME[$x]"))
+        ParseError("Unsupported parameter type '$x'", replacement = s"FIXME[$x]").left
     }
   }
 }

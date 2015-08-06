@@ -15,4 +15,16 @@ case class Controller(name: String, methods: Seq[Method]) {
        |  ${methods.map(_.scalaImpl).mkString("")}
        |}
      """.stripMargin
+
+  lazy val clientTrait =
+    s"""trait ${name}Client {
+        |  ${methods.map(_.clientSignature).mkString("\n  ")}
+        |}
+     """.stripMargin
+
+  lazy val clientImpl =
+    s"""object ${name}Client extends ${name}Client {
+        |${Indenter.indent(methods.map(_.clientMethod).mkString("\n"))}
+        |}
+     """.stripMargin
 }
