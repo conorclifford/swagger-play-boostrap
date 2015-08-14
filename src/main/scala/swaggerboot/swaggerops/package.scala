@@ -55,7 +55,8 @@ package object swaggerops {
           case (defn, refNames) +: tail =>
             if (prev.exists(_ == defn)) {
               if (withGraphWarnings) {
-                System.err.println(s"WARN - potential closed loop in Model '${defn.name}' dependencies - check generated JsonOps for manual corrections on this")
+                // FIXME change this to do indirect loop detection also.
+                System.err.println(s"WARN - potential self referencing Model '${defn.name}' dependencies - check generated JsonOps for manual corrections on this")
               }
               dependencySort(tail, selected :+ defn, prev = None)
             } else if (refNames.exists(n => !selected.map(_.name).contains(n))) {
