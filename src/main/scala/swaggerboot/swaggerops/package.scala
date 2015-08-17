@@ -23,11 +23,15 @@ case class ParseError(msg: String, replacement: String = "play.api.libs.json.JsV
 //
 
 package object swaggerops {
+  private case class SortingDefinition(md: ModelDefinition, references: Seq[String]) {
+    val name = md.name
+  }
+
   implicit class SwaggerOps(val swagger: Swagger) extends AnyVal {
     def routedControllers(): Iterable[RoutedController] = routedControllersWithErrors._1
 
     def routedControllersWithErrors(): (Iterable[RoutedController], Iterable[ParseError]) = {
-      swagger.getPaths.asScala.map {
+      Option(swagger.getPaths).map(_.asScala).getOrElse(Nil).map {
         case (pathStr, path) =>
           path.toController(swagger, basePath, pathStr)
       }.foldLeft((Seq.empty[RoutedController], Seq.empty[ParseError])) {
@@ -38,37 +42,58 @@ package object swaggerops {
 
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
-    def definitions(withGraphWarnings: Boolean = false): Seq[ModelDefinition] = {
-      val unsorted = definitionsWithErrors._1
-      val names = unsorted.map(_.name).toSet
+    private def orderDefinitions(unsorted: Seq[ModelDefinition], withCircularWarnings: Boolean = false): Seq[ModelDefinition] = {
 
+      val names = unsorted.map(_.name).toSet
       // calculate the referenced definitions for each definition...
-      val defsWithRefNames: Seq[(ModelDefinition, Seq[String])] = unsorted.map { d =>
-        d -> d.attributes.flatMap(a => names.find(n => a.scalaType contains n))
-      }.toSeq.sortBy(_._2.size)
+      val defsWithRefNames: Seq[SortingDefinition] = unsorted.map { d =>
+        SortingDefinition(d, d.attributes.flatMap(a => names.find(n => a.scalaType contains n)))
+      }
+
+      type Bump = (String, Set[String])
 
       @tailrec
-      def dependencySort(unprocessed: Seq[(ModelDefinition, Seq[String])], selected: Seq[ModelDefinition], prev: Option[ModelDefinition]): Seq[ModelDefinition] = {
-        unprocessed match {
+      def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], bumps: Seq[Bump]): Seq[SortingDefinition] = {
+        def inAcc(name: String, accumulator: Seq[SortingDefinition] = acc) = acc.exists(_.name == name)
+
+        // Cleanse bumps
+        val cleansedBumps = bumps.foldLeft(Seq.empty[Bump]) {
+          case (newBumps, (bumpedName, bumpedRefs)) if bumpedRefs.forall(inAcc(_)) =>
+            newBumps
+          case (newBumps, (bumpedName, bumpedRefs)) =>
+            newBumps :+(bumpedName, bumpedRefs.filterNot(inAcc(_)))
+        }
+
+        def isBumped(name: String) = bumps.exists(_._1 == name)
+        def allBumped(refs: Set[String]) = refs.forall(isBumped)
+        def refsAllBumped(name: String) = bumps.exists(b => b._1 == name && allBumped(b._2))
+        def isCircular(bump: Bump) = allBumped(bump._2) && bump._2.forall(refsAllBumped)
+
+        val circularRefs: Set[String] = cleansedBumps.filter(isCircular).map(_._1).toSet
+
+        if (withCircularWarnings) {
+          circularRefs.foreach { r => println(s"WARN - $r involved in circular reference - adding to output in arbitrary position") }
+        }
+        val newBumps = bumps.filterNot(b => circularRefs.contains(b._1))
+        val newAcc = acc ++ remaining.filter(r => circularRefs.contains(r.name))
+        val newRemaining = remaining.filterNot(r => circularRefs.contains(r.name))
+
+        // Process remaining for head/tail
+        newRemaining match {
           case Nil =>
-            selected
-          case (defn, refNames) +: tail =>
-            if (prev.exists(_ == defn)) {
-              if (withGraphWarnings) {
-                // FIXME change this to do indirect loop detection also.
-                System.err.println(s"WARN - potential self referencing Model '${defn.name}' dependencies - check generated JsonOps for manual corrections on this")
-              }
-              dependencySort(tail, selected :+ defn, prev = None)
-            } else if (refNames.exists(n => !selected.map(_.name).contains(n))) {
-              // retain in unprocessed, and track to stop infinite loops.
-              dependencySort(tail :+ (defn, refNames), selected, prev = Some(defn))
-            } else {
-              dependencySort(tail, selected :+ defn, prev = None)
-            }
+            newAcc
+          case head +: tail if head.references.forall(r => inAcc(r, newAcc) || head.name == r) =>
+            recur(tail, newAcc :+ head, newBumps)
+          case head +: tail =>
+            recur(tail :+ head, newAcc, newBumps :+ (head.name, head.references.toSet))
         }
       }
 
-      dependencySort(defsWithRefNames, Nil, None)
+      recur(defsWithRefNames, Nil, Nil).map(_.md)
+    }
+
+    def definitions(withCyclicWarnings: Boolean = false): Seq[ModelDefinition] = {
+      orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
     }
 
     def definitionsWithErrors(): (Iterable[ModelDefinition], Iterable[ParseError]) = {
