@@ -1,17 +1,29 @@
 package swaggerboot
 
 case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], supportPatch: Boolean) {
+  private val ReservedNames = Seq("type",  "package", "case", "class", "def", "val", "var", "protected", "private", "lazy", "match", "with", "extends", "if", "else", "while", "for")
+
   lazy val scalaClassImpl =
     s"""
-       |case class $name(
+       |case class $scalaName(
        |  ${attributes.map(mainClassAttribute).mkString(",\n  ")}
        |)
        |${scalaPatchClassImpl.getOrElse("")}
      """.stripMargin
 
   private def mainClassAttribute(attr: ModelAttribute): String = attr match {
-    case ModelAttribute(name, scalaType, false) => s"$name: Option[$scalaType]"
-    case ModelAttribute(name, scalaType, true) => s"$name: $scalaType"
+    case ModelAttribute(name, scalaType, false) => s"${toScalaName(name)}: Option[$scalaType]"
+    case ModelAttribute(name, scalaType, true) => s"${toScalaName(name)}: $scalaType"
+  }
+
+  private val scalaName = toScalaName(name)
+
+  private def toScalaName(n: String) = {
+    if (ReservedNames contains n) {
+      s"`$n`"
+    } else {
+      n
+    }
   }
 
   lazy val scalaPatchClassImpl: Option[String] = if (!supportPatch) {
@@ -19,7 +31,7 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
   } else {
     Some(
       s"""case class Patch$name(
-         |  ${attributes.map { case ModelAttribute(name, scalaType, _) => s"$name: Option[$scalaType]" }.mkString(",\n  ")}
+         |  ${attributes.map { case ModelAttribute(name, scalaType, _) => s"${toScalaName(name)}: Option[$scalaType]" }.mkString(",\n  ")}
          |)
        """.stripMargin
     )
