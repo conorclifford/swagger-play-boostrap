@@ -42,19 +42,19 @@ package object swaggerops {
 
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
-    private def orderDefinitions(unsorted: Seq[ModelDefinition], withCircularWarnings: Boolean = false): Seq[ModelDefinition] = {
+    private def orderDefinitions(unsorted: Seq[ModelDefinition], withCircularWarnings: Boolean = false): (Seq[SortingDefinition], Seq[(String, Set[String])]) = {
 
-      val names = unsorted.map(_.name).toSet
       // calculate the referenced definitions for each definition...
       val defsWithRefNames: Seq[SortingDefinition] = unsorted.map { d =>
-        SortingDefinition(d, d.attributes.flatMap(a => names.find(n => a.scalaType contains n)))
+        SortingDefinition(d, d.attributes.flatMap(_.referencedName))
       }
 
       type Bump = (String, Set[String])
 
       @tailrec
-      def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], bumps: Seq[Bump]): Seq[SortingDefinition] = {
-        def inAcc(name: String, accumulator: Seq[SortingDefinition] = acc) = acc.exists(_.name == name)
+      def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], cycleAcc: Seq[Bump], bumps: Seq[Bump]): (Seq[SortingDefinition], Seq[Bump]) = {
+
+        def inAcc(name: String, accumulator: Seq[SortingDefinition] = acc) = accumulator.exists(_.name == name)
 
         // Cleanse bumps
         val cleansedBumps = bumps.foldLeft(Seq.empty[Bump]) {
@@ -71,6 +71,8 @@ package object swaggerops {
 
         val circularRefs: Set[String] = cleansedBumps.filter(isCircular).map(_._1).toSet
 
+        val newCycleAcc = cycleAcc ++ cleansedBumps.filter(isCircular)
+
         if (withCircularWarnings) {
           circularRefs.foreach { r => println(s"WARN - $r involved in circular reference - adding to output in arbitrary position") }
         }
@@ -81,19 +83,23 @@ package object swaggerops {
         // Process remaining for head/tail
         newRemaining match {
           case Nil =>
-            newAcc
+            (newAcc, newCycleAcc)
           case head +: tail if head.references.forall(r => inAcc(r, newAcc) || head.name == r) =>
-            recur(tail, newAcc :+ head, newBumps)
+            recur(tail, newAcc :+ head, newCycleAcc, newBumps)
           case head +: tail =>
-            recur(tail :+ head, newAcc, newBumps :+ (head.name, head.references.toSet))
+            recur(tail :+ head, newAcc, newCycleAcc, newBumps :+ (head.name, head.references.toSet))
         }
       }
 
-      recur(defsWithRefNames, Nil, Nil).map(_.md)
+      recur(defsWithRefNames, Nil, Nil, Nil)
     }
 
     def definitions(withCyclicWarnings: Boolean = false): Seq[ModelDefinition] = {
-      orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
+      val (sorted, cyclicDefs) = orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
+      val cyclicRefsByName = cyclicDefs.toMap
+      sorted.map(_.md).map { md =>
+        md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
+      }
     }
 
     def definitionsWithErrors(): (Iterable[ModelDefinition], Iterable[ParseError]) = {
@@ -102,11 +108,11 @@ package object swaggerops {
       val definitionsAndErrors: List[(ModelDefinition, Seq[ParseError])] = swagger.getDefinitions.asScala.toList.map {
         case (name, model) =>
           val attrsAndErrors = model.properties.map { case (propName, prop) =>
-            val (scalaType, required, error: Option[ParseError]) = prop.scalaType() match {
-              case -\/(parseError) => (parseError.replacement, parseError.required, Some(parseError))
-              case \/-((stype: String, required: Boolean)) => (stype, required, None)
+            val (scalaType, required, refname, error) = prop.scalaType match {
+              case -\/(parseError) => (parseError.replacement, parseError.required, None, Some(parseError))
+              case \/-((stype, required, refname)) => (stype, required, refname, None)
             }
-            (ModelAttribute(propName, scalaType, required), error)
+            (ModelAttribute(propName, scalaType, required, refname), error)
           }
 
           // FIXME - change this to retain attribute order as per Swagger input...
@@ -190,16 +196,16 @@ package object swaggerops {
   }
 
   implicit class PropertyOps(val property: Property) extends AnyVal {
-    def scalaType(force: Boolean = false): ParseError \/ (String, Boolean) = {
-      val rawType: ParseError \/ String = property.getType match {
-        case "string" => "String".right
-        case "integer" => "Int".right
-        case "boolean" => "Boolean".right
-        case "ref" => getType(property.asInstanceOf[RefProperty]).right
+    def scalaType(): ParseError \/ (String, Boolean, Option[String]) = {
+      val rawType: ParseError \/ (String, Option[String]) = property.getType match {
+        case "string" => ("String", None).right
+        case "integer" => ("Int", None).right
+        case "boolean" => ("Boolean", None).right
+        case "ref" => getType(property.asInstanceOf[RefProperty])
         case "array" => {
           getType(property.asInstanceOf[ArrayProperty]).fold(
             l = error => error.copy(replacement=s"Seq[${error.replacement}]", required = property.getRequired).left,
-            r = v => s"Seq[$v]".right
+            r = v => (s"Seq[${v._1}]", v._2).right
           )
         }
         case "object" => getType(property.asInstanceOf[ObjectProperty])
@@ -207,12 +213,12 @@ package object swaggerops {
           ParseError(s"Unsupported property type '$x'").left
       }
 
-      rawType.map(_ -> property.getRequired)
+      rawType.map { case (n, rn) => (n, property.getRequired, rn) }
     }
 
-    private def getType(arrayProp: ArrayProperty): ParseError \/ String = arrayProp.getItems.scalaType(true).map(_._1)
-    private def getType(refProp: RefProperty): String = refProp.getSimpleRef
-    private def getType(objProp: ObjectProperty): ParseError \/ String = {
+    private def getType(arrayProp: ArrayProperty): ParseError \/ (String, Option[String]) = arrayProp.getItems.scalaType.map(st => (st._1, st._3))
+    private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
+    private def getType(objProp: ObjectProperty): ParseError \/ (String, Option[String]) = {
       ParseError("currently incapable of handing embedded properties in an object", required = objProp.getRequired).left
     }
   }
