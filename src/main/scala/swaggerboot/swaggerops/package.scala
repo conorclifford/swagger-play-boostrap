@@ -312,8 +312,11 @@ package object swaggerops {
       val scalaPath = basePath.fold(pathStr)(bp => s"$bp$pathStr".replace("//", "/")).replace("{", ":").replace("}", "")
 
       val (methods, errors) = path.operations.map { case (opName, op: Operation) =>
+        val hasBodyArg = Option(op.getParameters).map(_.asScala).getOrElse(Nil).exists(_.isInstanceOf[BodyParameter])
+
         val methodName = opName match {
           case "GET" if singleInstance  => "get"
+          case "GET" if hasBodyArg      => "get"
           case "GET"                    => "list"
           case "PUT" if singleInstance  => "put"
           case "PUT"                    => "putUnknown"
