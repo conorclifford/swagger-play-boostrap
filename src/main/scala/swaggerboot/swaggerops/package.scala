@@ -156,7 +156,6 @@ package object swaggerops {
 
     def definitions(withCyclicWarnings: Boolean = false): Seq[ModelDefinition] = {
       val (sorted, cyclicDefs) = orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
-      println(s"${sorted.map(_.md.name).mkString(", ")}") // FIXME
       val cyclicRefsByName = cyclicDefs.toMap
       sorted.map(_.md).map { md =>
         md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
