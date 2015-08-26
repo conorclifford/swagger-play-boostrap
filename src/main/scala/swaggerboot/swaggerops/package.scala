@@ -19,7 +19,8 @@ case class ParseError(msg: String, replacement: String = "play.api.libs.json.JsV
 // FIXME detected.
 // FIXME this error detection/replacement is also done in such a way as to allow a single-pass over API spec to
 // FIXME extract the errors once, rather than logging errors as they pass, to have each error only logged once.
-// FIXME **needs cleanup**
+//
+// FIXME **needs A LOT OF cleanup**
 //
 
 package object swaggerops {
@@ -74,7 +75,7 @@ package object swaggerops {
         val newCycleAcc = cycleAcc ++ cleansedBumps.filter(isCircular)
 
         if (withCircularWarnings) {
-          circularRefs.foreach { r => println(s"WARN - $r involved in circular reference - adding to output in arbitrary position") }
+          circularRefs.foreach { r => println(s"WARN - $r involved in circular reference - adding to output in arbitrary position - may require some manual reordering in JsonOps") }
         }
         val newBumps = bumps.filterNot(b => circularRefs.contains(b._1))
         val newAcc = acc ++ remaining.filter(r => circularRefs.contains(r.name))
@@ -94,8 +95,68 @@ package object swaggerops {
       recur(defsWithRefNames, Nil, Nil, Nil)
     }
 
+    /**
+     * A synthethic model is one that is built without an actual "Definition", but rather, in response to "object" properties, with
+     * corresponding embedded "properties"...
+     * It gets named based on its "parent" which may itself be synthetic, but no matter.
+     * These need to get merged into the real "definitions" before ordering - these are needed for all code generation...
+     *
+     * this gathers all parse errors as we go, and build up definitions using "replacements"
+     */
+    private def synthethicDefinitions(): (Seq[ModelDefinition], Seq[ParseError]) = {
+      def makeDefinition(defName: String, prop: ObjectProperty): (ModelDefinition, Seq[ParseError]) = {
+        val attrsAndErrors = Option(prop.getProperties).map(_.asScala).getOrElse(Nil).map { case (propName, prop) =>
+          val (scalaType, required, refname, error) = prop.scalaType(defName, propName) match {
+            case -\/(parseError) => (parseError.replacement, parseError.required, None, Some(parseError))
+            case \/-((stype, required, refname)) => (stype, required, refname, None)
+          }
+          (ModelAttribute(propName, scalaType, required, refname), error)
+        }
+
+        // FIXME - change this to retain attribute order as per Swagger input...
+        val (attrs, errors) = attrsAndErrors.foldLeft((Seq.empty[ModelAttribute], Seq.empty[ParseError])) {
+          case ((attrs, errors), (attr, errOpt)) =>
+            (attrs :+ attr, errOpt.fold(errors)(errors :+ _))
+        }
+
+        (ModelDefinition(defName, attrs.toList, false), errors)
+      }
+
+      def getSynthethics(parentName: String, namedProperties: Seq[(String, Property)], defAcc: Seq[ModelDefinition] = Nil, errAcc: Seq[ParseError] = Nil): (Seq[ModelDefinition], Seq[ParseError]) = {
+        namedProperties match {
+          case Nil => (defAcc, errAcc)
+          case head +: tail =>
+            val (newDefs, newErrs) = head match {
+              case (propName, oprop: ObjectProperty) =>
+                val (defs, errs) = getSynthethics(
+                  synthethicModelName(parentName, propName),
+                  Option(oprop.getProperties).map(_.asScala).getOrElse(Nil).toSeq)
+                val (newDef, newErrors) = makeDefinition(synthethicModelName(parentName, propName), oprop)
+                (defs :+ newDef, errs ++ newErrors)
+              case (propName, aprop: ArrayProperty) if aprop.getItems.isInstanceOf[ObjectProperty] =>
+                val oprop = aprop.getItems.asInstanceOf[ObjectProperty]
+                val (defs, errs) = getSynthethics(
+                  synthethicModelName(parentName, propName),
+                  Option(oprop.getProperties).map(_.asScala).getOrElse(Nil).toSeq)
+                val (newDef, newErrors) = makeDefinition(synthethicModelName(parentName, propName), oprop)
+                (defs :+ newDef, errs ++ newErrors)
+              case _ =>
+                (Nil, Nil)
+            }
+            getSynthethics(parentName, tail, defAcc ++ newDefs, errAcc ++ newErrs)
+        }
+      }
+
+      Option(swagger.getDefinitions).map(_.asScala).getOrElse(Map.empty).toList.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
+        case ((defsAcc, errAcc), (name, model)) =>
+          val (defs, errs) = getSynthethics(name, model.properties.toSeq)
+          (defsAcc ++ defs, errAcc ++ errs)
+      }
+    }
+
     def definitions(withCyclicWarnings: Boolean = false): Seq[ModelDefinition] = {
       val (sorted, cyclicDefs) = orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
+      println(s"${sorted.map(_.md.name).mkString(", ")}") // FIXME
       val cyclicRefsByName = cyclicDefs.toMap
       sorted.map(_.md).map { md =>
         md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
@@ -106,9 +167,9 @@ package object swaggerops {
       val typesForPatching = routedControllers.flatMap(_.methods.filter(_.httpMethod == "PATCH").flatMap(_.bodyType)).toSet
 
       val definitionsAndErrors: List[(ModelDefinition, Seq[ParseError])] = swagger.getDefinitions.asScala.toList.map {
-        case (name, model) =>
+        case (modelName, model) =>
           val attrsAndErrors = model.properties.map { case (propName, prop) =>
-            val (scalaType, required, refname, error) = prop.scalaType match {
+            val (scalaType, required, refname, error) = prop.scalaType(modelName, propName) match {
               case -\/(parseError) => (parseError.replacement, parseError.required, None, Some(parseError))
               case \/-((stype, required, refname)) => (stype, required, refname, None)
             }
@@ -121,13 +182,17 @@ package object swaggerops {
               (attrs :+ attr, errOpt.fold(errors)(errors :+ _))
           }
 
-          (ModelDefinition(name, attrs.toList, typesForPatching.contains(name)), errors)
+          (ModelDefinition(modelName, attrs.toList, typesForPatching.contains(modelName)), errors)
       }
 
-      definitionsAndErrors.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
+      val (realDefns, realErrors) = definitionsAndErrors.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
         case ((definitions, allErrors), (defn, errors)) =>
           (definitions :+ defn, allErrors ++ errors)
       }
+
+      val (synthDefns, synthErrors) = synthethicDefinitions()
+
+      (realDefns ++ synthDefns, realErrors ++ synthErrors)
     }
 
     def basePath: Option[String] = Option(swagger.getBasePath)
@@ -196,19 +261,19 @@ package object swaggerops {
   }
 
   implicit class PropertyOps(val property: Property) extends AnyVal {
-    def scalaType(): ParseError \/ (String, Boolean, Option[String]) = {
+    def scalaType(parentName: String, propName: String): ParseError \/ (String, Boolean, Option[String]) = {
       val rawType: ParseError \/ (String, Option[String]) = property.getType match {
         case "string" => ("String", None).right
         case "integer" => ("Int", None).right
         case "boolean" => ("Boolean", None).right
         case "ref" => getType(property.asInstanceOf[RefProperty])
         case "array" => {
-          getType(property.asInstanceOf[ArrayProperty]).fold(
-            l = error => error.copy(replacement=s"Seq[${error.replacement}]", required = property.getRequired).left,
+          getType(parentName, propName, property.asInstanceOf[ArrayProperty]).fold(
+            l = error => error.copy(replacement = s"Seq[${error.replacement}]", required = property.getRequired).left,
             r = v => (s"Seq[${v._1}]", v._2).right
           )
         }
-        case "object" => getType(property.asInstanceOf[ObjectProperty])
+        case "object" => getType(synthethicModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
         case x =>
           ParseError(s"Unsupported property type '$x'").left
       }
@@ -216,11 +281,19 @@ package object swaggerops {
       rawType.map { case (n, rn) => (n, property.getRequired, rn) }
     }
 
-    private def getType(arrayProp: ArrayProperty): ParseError \/ (String, Option[String]) = arrayProp.getItems.scalaType.map(st => (st._1, st._3))
-    private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
-    private def getType(objProp: ObjectProperty): ParseError \/ (String, Option[String]) = {
-      ParseError("currently incapable of handing embedded properties in an object", required = objProp.getRequired).left
+    private def getType(parentName: String, propName: String, arrayProp: ArrayProperty): ParseError \/ (String, Option[String]) = {
+      arrayProp.getItems.scalaType(parentName, propName).map(st => (st._1, st._3))
     }
+    private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
+    private def getType(name: String, objProp: ObjectProperty): ParseError \/ (String, Option[String]) = {
+      // Simply refer to the synthentic name here - note giving reference to the synthethic here for ordering above
+      (name, Some(name)).right
+    }
+  }
+
+  private def synthethicModelName(parentName: String, propertyName: String): String = {
+    def camelOf(name: String): String = name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
+    s"${camelOf(parentName)}${camelOf(propertyName)}"
   }
 
   implicit class PathOps(val path: Path) extends AnyVal {
@@ -299,7 +372,8 @@ package object swaggerops {
           op.responses().toSeq.map { case (rcode, resp) =>
 
             val optReturnType = Option(resp.getSchema).map {
-              _.scalaType().fold(_.replacement, _._1)
+              // FIXME get better "parentName" and definitely for "propName" for this?
+              _.scalaType("Response", s"$rcode").fold(_.replacement, _._1)
             }.map {
               stype => ReturnType(stype, stype.startsWith("Seq["))
             }
@@ -374,9 +448,14 @@ package object swaggerops {
     }
 
     private def getReference(p: BodyParameter): ParseError \/ String = {
+      def refModel(mod: Model): Option[RefModel] = mod match {
+        case rmod: RefModel => Some(rmod)
+        case _ => None
+      }
+
       val refOpt = for {
-        schema <- Option(p.getSchema)
-        ref <- Option(schema.getReference)
+        schema <- Option(p.getSchema).flatMap(refModel)
+        ref <- Option(schema.getSimpleRef)
       } yield { ref }
 
       refOpt match {

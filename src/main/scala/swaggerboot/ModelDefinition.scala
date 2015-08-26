@@ -1,7 +1,13 @@
 package swaggerboot
 
 case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], supportPatch: Boolean, cyclicReferences: Option[Set[String]] = None) {
-  private val ReservedNames = Seq("type",  "package", "case", "class", "def", "val", "var", "protected", "private", "lazy", "match", "with", "extends", "if", "else", "while", "for")
+  private val ReservedNames = Seq(
+    "abstract", "case", "catch", "class", "def", "do", "else", "extends",
+    "false", "final", "finally", "for", "forSome", "if", "implicit",
+    "import", "lazy", "match", "new", "null", "object", "override", "package",
+    "private", "protected", "return", "sealed", "super", "this", "throw",
+    "trait", "try", "true", "type", "val", "var", "while", "with", "yield"
+  )
 
   lazy val scalaClassImpl =
     s"""
@@ -53,15 +59,16 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
        |  implicit val writes$name: Writes[$scalaName] = (
        |    ${attributes.map(generateExplicit("Write", _)).mkString(" and\n    ")}
        |  )(unlift($scalaName.unapply))
+       |  ${scalaPatchJsonImpl.getOrElse("")}
      """.stripMargin
   }
 
-  private def generateExplicit(ftype: String, attribute: ModelAttribute): String = {
+  private def generateExplicit(ftype: String, attribute: ModelAttribute, forceOptional: Boolean = false): String = {
     val fcall = if (cyclicReferences.exists(_.contains(attribute.scalaType))) {
-      val fn = if (attribute.required) s"lazy$ftype" else s"lazy${ftype}Nullable"
+      val fn = if (!forceOptional && attribute.required) s"lazy$ftype" else s"lazy${ftype}Nullable"
       s"$fn(${ftype.toLowerCase}s${attribute.scalaType})"
     } else {
-      val fn = if (attribute.required) s"${ftype.toLowerCase}" else s"${ftype.toLowerCase}Nullable"
+      val fn = if (!forceOptional && attribute.required) s"${ftype.toLowerCase}" else s"${ftype.toLowerCase}Nullable"
       s"$fn[${attribute.scalaType}]"
     }
     s"""(__ \\ "${attribute.name}").$fcall"""
@@ -77,15 +84,16 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
        |""".stripMargin
     )
   } else {
+    // Note, Patch object have every attribute as Optional...
     Some(
       s"""
          |  implicit val readsPatch$name: Reads[Patch$scalaName] = (
-         |    ${attributes.map(generateExplicit("Read", _)).mkString(" and\n    ")}
-         |  )($scalaName)
+         |    ${attributes.map(generateExplicit("Read", _, forceOptional = true)).mkString(" and\n    ")}
+         |  )(Patch$scalaName)
          |
-         |  implicit val writesPatch$name: WritesPatch[$scalaName] = (
-         |    ${attributes.map(generateExplicit("Write", _)).mkString(" and\n    ")}
-         |  )(unlift($scalaName.unapply))
+         |  implicit val writesPatch$name: Writes[Patch$scalaName] = (
+         |    ${attributes.map(generateExplicit("Write", _, forceOptional = true)).mkString(" and\n    ")}
+         |  )(unlift(Patch$scalaName.unapply))
      """.stripMargin
     )
   }
