@@ -450,20 +450,16 @@ package object swaggerops {
     }
 
     private def getReference(p: BodyParameter): ParseError \/ String = {
-      def refModel(mod: Model): Option[RefModel] = mod match {
-        case rmod: RefModel => Some(rmod)
+      def processModel(mod: Model): Option[String] = mod match {
+        case rmod: RefModel => Option(rmod.getSimpleRef)
+        case amod: ArrayModel => amod.getItems match {
+          case ref: RefProperty => Option(ref.getSimpleRef).map(m => s"Seq[$m]")
+          case _ => None
+        }
         case _ => None
       }
 
-      val refOpt = for {
-        schema <- Option(p.getSchema).flatMap(refModel)
-        ref <- Option(schema.getSimpleRef)
-      } yield { ref }
-
-      refOpt match {
-        case None => ParseError("Missing Schema/Ref for a Body Parameter").left
-        case Some(ref) => ref.right
-      }
+      Option(p.getSchema).flatMap(processModel) \/> ParseError("Missing Schema/Ref for a Body Parameter")
     }
 
     private def scalaType(swaggerType: String): ParseError \/ String = swaggerType match {
