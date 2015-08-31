@@ -245,7 +245,6 @@ package object swaggerops {
          |
          |class Client(baseUrl: String, wsClient: => WSClient = play.api.libs.ws.WS.client(play.api.Play.current)) {
          |  import JsonOps._
-         |  import play.api.Play.current
          |
          |${Indenter.indent(controllers.map(rc => s"val ${toIdentifier(rc.name)}: ${rc.name}Client = ${rc.name}Client").mkString("\n"))}
          |
