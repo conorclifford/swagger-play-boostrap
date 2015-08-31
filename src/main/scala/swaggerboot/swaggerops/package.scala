@@ -230,6 +230,7 @@ package object swaggerops {
       s"""package $packageName
          |
          |import play.api.libs.json.Json
+         |import play.api.libs.ws.WSClient
          |
          |import scala.concurrent.{ExecutionContext, Future}
          |import scalaz._
@@ -242,7 +243,7 @@ package object swaggerops {
          |
          |${controllers.map(_.clientTrait).mkString("\n")}
          |
-         |class Client(baseUrl: String) {
+         |class Client(baseUrl: String, wsClient: => WSClient = play.api.libs.ws.WS.client(play.api.Play.current)) {
          |  import JsonOps._
          |  import play.api.Play.current
          |

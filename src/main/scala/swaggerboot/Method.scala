@@ -72,7 +72,7 @@ sealed trait Method {
     }.map { bt => s"body: $bt" }
 
     val mandatoryParams = params.filter(_.required).map(p => Some(p.toString)) :+ bodyParam
-    val optionalParams = params.filterNot(_.required).map(p => Some(p.toString))
+    val optionalParams = params.filterNot(_.required).map(p => Some(s"$p = None"))
     val parameters = (mandatoryParams ++ optionalParams ++ headerParams.map(p => Some(p.toString))).flatten :+ s"""contentType: String = "${produces.headOption.getOrElse("application/json")}""""
 
     s"""def $name(${parameters.mkString(", ")})(implicit ec: ExecutionContext): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
@@ -117,20 +117,23 @@ sealed trait Method {
       ""
     }
 
-    val callArgs = bodyType.fold("")(_ => "Json.toJson(body)")
+    val isGet = httpMethod == "GET"
+    val withBody = bodyType.filter(_ => isGet).fold("")(_ => ".withBody(Json.toJson(body))")
+    val callArgs = bodyType.filterNot(_ => isGet).fold("")(_ => "Json.toJson(body)")
 
     def codify(v: Option[String]) = v match {
       case None => "None"
       case Some(x) => s"""Some("$x")"""
     }
 
+
     s"""$clientSignature = {
        |  require(Seq(${acceptableContentTypes.mkString("\"", "\", \"", "\"")}) contains contentType, "Unacceptable contentType specified")
        |
        |  val headers = Seq(
-       |    Some("Content Type" -> s"$$contentType; charset=UTF-8")${if (headerParams.nonEmpty) ",\n    " else ""}${headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
+       |    Some("Content-Type" -> s"$$contentType; charset=UTF-8")${if (headerParams.nonEmpty) ",\n    " else ""}${headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
        |  $queryParamsSnippet
-       |  play.api.libs.ws.WS.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*).${httpMethod.toLowerCase}($callArgs).map {
+       |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*)$withBody.${httpMethod.toLowerCase}($callArgs).map {
        |${
             returnValues.toSeq.sortBy(_.rcode).map {
               case ReturnValue(rcode, message, None) if rcode < 400 =>
