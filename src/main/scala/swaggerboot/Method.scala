@@ -96,8 +96,8 @@ sealed trait Method {
            |  val queryParams = Seq(
            |    ${
           params.filter(_.paramType == QueryParam).map {
-            case param @ Param(name, _, required, _) if required => s"""Some("$name" -> ${param.paramName})"""
-            case param @ Param(name, _, required, _) if !required => s"""${param.paramName}.map("$name" -> _)"""
+            case param @ Param(name, _, required, _, _) if required => s"""Some("$name" -> ${param.paramName})"""
+            case param @ Param(name, _, required, _, _) if !required => s"""${param.paramName}.map("$name" -> _)"""
           }.mkString(",\n    ")}
            |  ).flatten
            |"""

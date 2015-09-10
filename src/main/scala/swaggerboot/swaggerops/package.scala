@@ -32,7 +32,8 @@ package object swaggerops {
     def routedControllers(): Iterable[RoutedController] = routedControllersWithErrors._1
 
     def routedControllersWithErrors(): (Iterable[RoutedController], Iterable[ParseError]) = {
-      Option(swagger.getPaths).map(_.asScala).getOrElse(Nil).map {
+      val paths = Option(swagger.getPaths).map(_.asScala.toSeq).getOrElse(Nil)
+      paths.map {
         case (pathStr, path) =>
           path.toController(swagger, basePath, pathStr)
       }.foldLeft((Seq.empty[RoutedController], Seq.empty[ParseError])) {
@@ -146,6 +147,8 @@ package object swaggerops {
             getSynthethics(parentName, tail, defAcc ++ newDefs, errAcc ++ newErrs)
         }
       }
+
+      // FIXME - expand this to include synthethics to be derived from objects defined inline to
 
       Option(swagger.getDefinitions).map(_.asScala).getOrElse(Map.empty).toList.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
         case ((defsAcc, errAcc), (name, model)) =>
@@ -338,7 +341,8 @@ package object swaggerops {
             case "query" => QueryParam
             case "path" => PathParam
           }
-          (Param(param.getName, typeName, param.getRequired, paramType), error)
+
+          (Param(param.getName, typeName, param.getRequired, paramType, param.defaultValue), error)
         }.foldLeft((Seq.empty[Param], Seq.empty[ParseError])) {
           case ((params, errors), (param, errOpt)) =>
             (params :+ param, errOpt.fold(errors)(errors :+ _))
@@ -361,7 +365,7 @@ package object swaggerops {
             case -\/(parseError) => (parseError.replacement, Some(parseError))
             case \/-(tname) => (tname, None: Option[ParseError])
           }
-          (Param(param.getName, typeName, param.getRequired, HeaderParam), error)
+          (Param(param.getName, typeName, param.getRequired, HeaderParam, param.defaultValue), error)
         }.foldLeft((Seq.empty[Param], Seq.empty[ParseError])) {
           case ((params, errors), (param, errOpt)) =>
             (params :+ param, errOpt.fold(errors)(errors :+ _))
@@ -447,6 +451,13 @@ package object swaggerops {
       case p: HeaderParameter => scalaType(p.getType)
       case _ =>
         ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}").left
+    }
+
+    def defaultValue(): Option[String] = param match {
+      case qparam: QueryParameter =>
+        Option(qparam.getDefaultValue)
+      case _ =>
+        None
     }
 
     private def getReference(p: BodyParameter): ParseError \/ String = {
