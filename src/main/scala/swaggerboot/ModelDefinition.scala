@@ -43,25 +43,24 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
     )
   }
 
-  lazy val playJsonImpl = if (cyclicReferences.isEmpty) {
+  //
+  // Json reads/writes generated in semi-verbose manner here intentionally as this gives direct visibility into what is
+  // being genated/serialised, and also allows for easier manipulation of generated code (for whatever reason, even if this
+  // should really not be necessary...
+  //
+
+  private lazy val playJsonDeclType = if (cyclicReferences.isEmpty) "val" else "def"
+  lazy val playJsonImpl =
     s"""
-     |  implicit val reads$name = Json.reads[$scalaName]
-     |  implicit val writes$name = Json.writes[$scalaName]
-     |  ${scalaPatchJsonImpl.getOrElse("")}
-     |""".
-      stripMargin
-    } else {
-    s"""
-       |  implicit val reads$name: Reads[$scalaName] = (
+       |  implicit $playJsonDeclType reads$name: Reads[$scalaName] = (
        |    ${attributes.map(generateExplicit("Read", _)).mkString(" and\n    ")}
        |  )($scalaName)
        |
-       |  implicit val writes$name: Writes[$scalaName] = (
+       |  implicit $playJsonDeclType writes$name: Writes[$scalaName] = (
        |    ${attributes.map(generateExplicit("Write", _)).mkString(" and\n    ")}
        |  )(unlift($scalaName.unapply))
        |  ${scalaPatchJsonImpl.getOrElse("")}
      """.stripMargin
-  }
 
   private def generateExplicit(ftype: String, attribute: ModelAttribute, forceOptional: Boolean = false): String = {
     val fcall = if (cyclicReferences.exists(_.contains(attribute.scalaType))) {
@@ -76,22 +75,15 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
 
   lazy val scalaPatchJsonImpl: Option[String] = if (!supportPatch) {
     None
-  } else if (cyclicReferences.isEmpty) {
-    Some(
-      s"""
-       |  implicit val readsPatch$name = Json.reads[Patch$scalaName]
-       |  implicit val writesPatch$name = Json.writes[Patch$scalaName]
-       |""".stripMargin
-    )
   } else {
     // Note, Patch object have every attribute as Optional...
     Some(
       s"""
-         |  implicit val readsPatch$name: Reads[Patch$scalaName] = (
+         |  implicit $playJsonDeclType readsPatch$name: Reads[Patch$scalaName] = (
          |    ${attributes.map(generateExplicit("Read", _, forceOptional = true)).mkString(" and\n    ")}
          |  )(Patch$scalaName)
          |
-         |  implicit val writesPatch$name: Writes[Patch$scalaName] = (
+         |  implicit $playJsonDeclType writesPatch$name: Writes[Patch$scalaName] = (
          |    ${attributes.map(generateExplicit("Write", _, forceOptional = true)).mkString(" and\n    ")}
          |  )(unlift(Patch$scalaName.unapply))
      """.stripMargin

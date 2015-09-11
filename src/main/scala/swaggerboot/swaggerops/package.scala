@@ -44,6 +44,11 @@ package object swaggerops {
 
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
+    /**
+     * This is not a great approach, but mostly works...
+     *
+     * @return (SortedSeq, NamesOfDefinitionsInCycles)
+     */
     private def orderDefinitions(unsorted: Seq[ModelDefinition], withCircularWarnings: Boolean = false): (Seq[SortingDefinition], Seq[(String, Set[String])]) = {
 
       // calculate the referenced definitions for each definition...
@@ -69,15 +74,31 @@ package object swaggerops {
         def isBumped(name: String) = bumps.exists(_._1 == name)
         def allBumped(refs: Set[String]) = refs.forall(isBumped)
         def refsAllBumped(name: String) = bumps.exists(b => b._1 == name && allBumped(b._2))
-        def isCircular(bump: Bump) = allBumped(bump._2) && bump._2.forall(refsAllBumped)
 
-        val circularRefs: Set[String] = cleansedBumps.filter(isCircular).map(_._1).toSet
+        def hasCycle(bumpToCheck: Bump): Boolean = {
+          def recur(bump: Bump, seen: Set[String]): Boolean = {
+            // its circular when all its references are bumps, and all those have references that are bumps, etc., etc... recursively.
+            // of course, this will result in infinite loop for the circular cases, so track the refs already checked, and if this
+            // function gets to check one again, its an obvious cycle.
+            if (seen.contains(bump._1)) {
+              true
+            } else if (!allBumped(bump._2)) {
+              false
+            } else {
+              bump._2.flatMap(b => bumps.find(_._1 == b)).any(recur(_, seen + bump._1))
+            }
+          }
+          recur(bumpToCheck, Set.empty)
+        }
 
-        val newCycleAcc = cycleAcc ++ cleansedBumps.filter(isCircular)
+        val circularRefs: Set[String] = cleansedBumps.filter(hasCycle).map(_._1).toSet
+
+        val newCycleAcc = cycleAcc ++ cleansedBumps.filter(hasCycle)
 
         if (withCircularWarnings) {
-          circularRefs.foreach { r => println(s"WARN - $r involved in circular reference - adding to output in arbitrary position - may require some manual reordering in JsonOps") }
+          circularRefs.foreach { r => println(s"WARN - $r will be generated as 'def' in JsonOps (due to detected potential circular reference)") }
         }
+
         val newBumps = bumps.filterNot(b => circularRefs.contains(b._1))
         val newAcc = acc ++ remaining.filter(r => circularRefs.contains(r.name))
         val newRemaining = remaining.filterNot(r => circularRefs.contains(r.name))
@@ -317,13 +338,16 @@ package object swaggerops {
       val (methods, errors) = path.operations.map { case (opName, op: Operation) =>
         val hasBodyArg = Option(op.getParameters).map(_.asScala).getOrElse(Nil).exists(_.isInstanceOf[BodyParameter])
 
+        val hasSuccessResponseBody = op.responses().filterKeys(_.toInt < 300).find { case (_, resp) => Option(resp.getSchema).nonEmpty }.nonEmpty
+
         val methodName = opName match {
-          case "GET" if singleInstance  => "get"
-          case "GET" if hasBodyArg      => "get"
-          case "GET"                    => "list"
-          case "PUT" if singleInstance  => "put"
-          case "PUT"                    => "putUnknown"
-          case x                        => x.toLowerCase
+          case "GET" if singleInstance          => "get"
+          case "GET" if hasBodyArg              => "get"
+          case "GET" if !hasSuccessResponseBody => "get"
+          case "GET"                            => "list"
+          case "PUT" if singleInstance          => "put"
+          case "PUT"                            => "putUnknown"
+          case x                                => x.toLowerCase
         }
 
         // Path parameters apply to all Operations (can be overridden (by name), but cannot be removed)
@@ -373,6 +397,7 @@ package object swaggerops {
 
         // Produces list can override swagger spec. wide (including wiping, with local empty list)...
         val produces = (Option(op.getProduces) orElse Option(swagger.getProduces)).map(_.asScala).getOrElse(Nil)
+        val consumes = (Option(op.getConsumes) orElse Option(swagger.getConsumes)).map(_.asScala).getOrElse(Nil)
 
         val returnValues =
           op.responses().toSeq.map { case (rcode, resp) =>
@@ -399,6 +424,7 @@ package object swaggerops {
             params = params,
             headerParams = headerParams,
             produces = produces,
+            consumes = consumes,
             returnValues = returnValues,
             body = bodyOpt),
           paramErrors ++ headerErrors ++ bodyError.toList

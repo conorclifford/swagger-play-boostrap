@@ -10,10 +10,11 @@ object Method {
             params: Seq[Param],
             headerParams: Seq[Param],
             produces: Seq[String],
+            consumes: Seq[String],
             returnValues: Set[ReturnValue],
             body: Option[Body]): Method = {
-    body.fold(BodyLessMethod(routePath, httpMethod, name, params, headerParams, produces, returnValues): Method) {
-      bod => MethodExpectingBody(routePath, httpMethod, name, params, headerParams, produces, returnValues, bod)
+    body.fold(BodyLessMethod(routePath, httpMethod, name, params, headerParams, produces, consumes, returnValues): Method) {
+      bod => MethodExpectingBody(routePath, httpMethod, name, params, headerParams, produces, consumes, returnValues, bod)
     }
   }
 }
@@ -27,7 +28,14 @@ sealed trait Method {
   def scalaImpl: String
   def bodyType: Option[String]
   def produces: Seq[String]
+  def consumes: Seq[String]
   def returnValues: Set[ReturnValue]
+
+  private lazy val isGet = httpMethod == "GET"
+  private lazy val acceptableContentTypes = (if (isGet) produces else consumes) match {
+    case Nil => Seq("application/json")
+    case x => x
+  }
 
   protected def producesCommentary(): String = {
     if (produces.nonEmpty) {
@@ -41,7 +49,7 @@ sealed trait Method {
   }
 
   final def routeFileEntry(path: String, controllerName: String) = {
-    s"$httpMethod \t$path \tcontrollers.$controllerName.$name(${params.mkString(", ")})"
+    s"$httpMethod \t$path \tcontrollers.$controllerName.$name(${params.map(_.playRouteParam).mkString(", ")})"
   }
 
   def clientSignature(): String = {
@@ -73,16 +81,12 @@ sealed trait Method {
 
     val mandatoryParams = params.filter(_.required).map(p => Some(p.toString)) :+ bodyParam
     val optionalParams = params.filterNot(_.required).map(p => Some(s"$p = None"))
-    val parameters = (mandatoryParams ++ optionalParams ++ headerParams.map(p => Some(p.toString))).flatten :+ s"""contentType: String = "${produces.headOption.getOrElse("application/json")}""""
+    val parameters = (mandatoryParams ++ optionalParams ++ headerParams.map(p => Some(p.toString))).flatten :+ s"""contentType: String = "${acceptableContentTypes.headOption.getOrElse("application/json")}""""
 
     s"""def $name(${parameters.mkString(", ")})(implicit ec: ExecutionContext): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
   }
 
   def clientMethod(): String = {
-    val acceptableContentTypes = produces match {
-      case Nil => Seq("application/json")
-      case _ => produces
-    }
 
     def toHeader(param: Param) = if (param.required) {
       s"""Some("${param.name}" -> ${param.paramName})"""
@@ -96,8 +100,8 @@ sealed trait Method {
            |  val queryParams = Seq(
            |    ${
           params.filter(_.paramType == QueryParam).map {
-            case param @ Param(name, _, required, _, _) if required => s"""Some("$name" -> ${param.paramName})"""
-            case param @ Param(name, _, required, _, _) if !required => s"""${param.paramName}.map("$name" -> _)"""
+            case param @ Param(name, _, required, _, _) if required => s"""Some("$name" -> ${param.paramName}.toString)"""
+            case param @ Param(name, _, required, _, _) if !required => s"""${param.paramName}.map("$name" -> _.toString)"""
           }.mkString(",\n    ")}
            |  ).flatten
            |"""
@@ -117,9 +121,13 @@ sealed trait Method {
       ""
     }
 
-    val isGet = httpMethod == "GET"
     val withBody = bodyType.filter(_ => isGet).fold("")(_ => ".withBody(Json.toJson(body))")
     val callArgs = bodyType.filterNot(_ => isGet).fold("")(_ => "Json.toJson(body)")
+
+    val executeMethod = httpMethod match {
+      case "PUT" | "PATCH" if bodyType.isEmpty => s"""withMethod("$httpMethod").execute()"""
+      case _ => s"${httpMethod.toLowerCase}($callArgs)"
+    }
 
     def codify(v: Option[String]) = v match {
       case None => "None"
@@ -133,7 +141,7 @@ sealed trait Method {
        |  val headers = Seq(
        |    Some("Content-Type" -> s"$$contentType; charset=UTF-8")${if (headerParams.nonEmpty) ",\n    " else ""}${headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
        |  $queryParamsSnippet
-       |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*)$withBody.${httpMethod.toLowerCase}($callArgs).map {
+       |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*)$withBody.$executeMethod.map {
        |${
             returnValues.toSeq.sortBy(_.rcode).map {
               case ReturnValue(rcode, message, None) if rcode < 400 =>
@@ -173,6 +181,7 @@ case class BodyLessMethod(override val routePath: String,
                           override val params: Seq[Param],
                           override val headerParams: Seq[Param],
                           override val produces: Seq[String],
+                          override val consumes: Seq[String],
                           override val returnValues: Set[ReturnValue]) extends Method {
 
   override val bodyType = None
@@ -192,6 +201,7 @@ case class MethodExpectingBody(override val routePath: String,
                                override val params: Seq[Param],
                                override val headerParams: Seq[Param],
                                override val produces: Seq[String],
+                               override val consumes: Seq[String],
                                override val returnValues: Set[ReturnValue],
                                body: Body) extends Method {
 
