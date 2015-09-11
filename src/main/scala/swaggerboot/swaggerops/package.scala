@@ -289,8 +289,24 @@ package object swaggerops {
   implicit class PropertyOps(val property: Property) extends AnyVal {
     def scalaType(parentName: String, propName: String): ParseError \/ (String, Boolean, Option[String]) = {
       val rawType: ParseError \/ (String, Option[String]) = property.getType match {
-        case "string" => ("String", None).right
-        case "integer" => ("Int", None).right
+        case "integer" if "int32" == property.getFormat =>
+          ("Int", None).right
+        case "integer" if "int64" == Option(property.getFormat).getOrElse("int64") =>
+          ("Long", None).right
+        case "float" =>
+          ("Float", None).right
+        case "double" =>
+          ("Double", None).right
+        case "string" if "byte" == property.getFormat =>
+          ("Byte", None).right
+        case "string" if "binary" == property.getFormat =>
+          ("Seq[Byte]", None).right
+        case "string" if "date" == property.getFormat =>
+          ("org.joda.time.DateTime", None).right
+        case "string" if "date-time" == property.getFormat =>
+          ("org.joda.time.DateTime", None).right
+        case "string" =>
+          ("String", None).right
         case "boolean" => ("Boolean", None).right
         case "ref" => getType(property.asInstanceOf[RefProperty])
         case "array" => {
@@ -319,7 +335,7 @@ package object swaggerops {
 
     private def getType(parentName: String, propName: String, mapProp: MapProperty): ParseError \/ (String, Option[String]) = {
       mapProp.getAdditionalProperties.scalaType(parentName, propName).leftMap { case pe =>
-        ParseError(msg = pe.msg, replacement = "Map[String, JsValue]", required = pe.required)
+        ParseError(msg = pe.msg, replacement = "Map[String, play.api.libs.json.JsValue]", required = pe.required)
       }.map { case (valtype, _, reftype) =>
         (s"Map[String, $valtype]", reftype)
       }
@@ -327,7 +343,7 @@ package object swaggerops {
 
     private def getType(name: String, objProp: ObjectProperty): ParseError \/ (String, Option[String]) = {
       if (objProp.getProperties.isEmpty()) {
-        ("JsValue", None).right
+        ("play.api.libs.json.JsValue", None).right
       } else {
         // Simply refer to the synthentic name here - note giving reference to the synthethic here for ordering above
         (name, Some(name)).right
