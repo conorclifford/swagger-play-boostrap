@@ -2,7 +2,7 @@ package swaggerboot
 
 import io.swagger.models.auth.SecuritySchemeDefinition
 import io.swagger.models.parameters._
-import io.swagger.models.properties.{ObjectProperty, ArrayProperty, RefProperty, Property}
+import io.swagger.models.properties._
 import io.swagger.models._
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
@@ -126,6 +126,9 @@ package object swaggerops {
      * this gathers all parse errors as we go, and build up definitions using "replacements"
      */
     private def synthethicDefinitions(): (Seq[ModelDefinition], Seq[ParseError]) = {
+
+      // FIXME delve into MapProperty.additionalProperties here also.
+
       def makeDefinition(defName: String, prop: ObjectProperty): (ModelDefinition, Seq[ParseError]) = {
         val attrsAndErrors = Option(prop.getProperties).map(_.asScala).getOrElse(Nil).map { case (propName, prop) =>
           val (scalaType, required, refname, error) = prop.scalaType(defName, propName) match {
@@ -296,7 +299,8 @@ package object swaggerops {
             r = v => (s"Seq[${v._1}]", v._2).right
           )
         }
-        case "object" => getType(synthethicModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
+        case "object" if property.isInstanceOf[ObjectProperty] => getType(synthethicModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
+        case "object" if property.isInstanceOf[MapProperty] => getType(parentName, propName, property.asInstanceOf[MapProperty]) // FIXME are these parent/prop names correct here?
         case x =>
           ParseError(s"Unsupported property type '$x'").left
       }
@@ -307,10 +311,27 @@ package object swaggerops {
     private def getType(parentName: String, propName: String, arrayProp: ArrayProperty): ParseError \/ (String, Option[String]) = {
       arrayProp.getItems.scalaType(parentName, propName).map(st => (st._1, st._3))
     }
-    private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
+
+    private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = {
+      println(s"getType() of RefProperty :: ${refProp.getSimpleRef}") // FIXME
+      (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
+    }
+
+    private def getType(parentName: String, propName: String, mapProp: MapProperty): ParseError \/ (String, Option[String]) = {
+      mapProp.getAdditionalProperties.scalaType(parentName, propName).leftMap { case pe =>
+        ParseError(msg = pe.msg, replacement = "Map[String, JsValue]", required = pe.required)
+      }.map { case (valtype, _, reftype) =>
+        (s"Map[String, $valtype]", reftype)
+      }
+    }
+
     private def getType(name: String, objProp: ObjectProperty): ParseError \/ (String, Option[String]) = {
-      // Simply refer to the synthentic name here - note giving reference to the synthethic here for ordering above
-      (name, Some(name)).right
+      if (objProp.getProperties.isEmpty()) {
+        ("JsValue", None).right
+      } else {
+        // Simply refer to the synthentic name here - note giving reference to the synthethic here for ordering above
+        (name, Some(name)).right
+      }
     }
   }
 

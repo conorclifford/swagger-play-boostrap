@@ -82,7 +82,12 @@ object PlaySkeletonBootstrap extends App {
     }
 
   } else {
-    val clientPackageName = swagger.getInfo.getTitle().replace(".", "").replace(" ", "_").toLowerCase
+    val title = for {
+      info <- Option(swagger.getInfo)
+      title <- Option(info.getTitle)
+    } yield title
+
+    val clientPackageName = title.getOrElse("No Info Title Provided Package").replace(".", "").replace(" ", "_").toLowerCase
     val clientDir = new File(new File(outputDir, "clients"), clientPackageName)
 
     Seq(clientDir).map { dir =>
