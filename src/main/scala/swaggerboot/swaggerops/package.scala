@@ -5,28 +5,17 @@ import io.swagger.models.parameters._
 import io.swagger.models.properties._
 import io.swagger.models._
 import scala.annotation.tailrec
+import scala.collection
 import scala.collection.JavaConverters._
 
 import scalaz._
 import Scalaz._
 
-case class ParseError(msg: String, replacement: String = "play.api.libs.json.JsValue", required: Boolean = false)
-
 //
-// FIXME code in this file is overly complex and bit of a mess
-// FIXME - as it tries to check for errors (based on internal limitations, etc)
-// FIXME while also still allowing code generations to proceed (with simply "FIXME" values where the errors were
-// FIXME detected.
-// FIXME this error detection/replacement is also done in such a way as to allow a single-pass over API spec to
-// FIXME extract the errors once, rather than logging errors as they pass, to have each error only logged once.
-//
-// FIXME **needs A LOT OF cleanup**
+// FIXME **still needs A LOT OF cleanup**
 //
 
 package object swaggerops {
-  private case class SortingDefinition(md: ModelDefinition, references: Seq[String]) {
-    val name = md.name
-  }
 
   implicit class SwaggerOps(val swagger: Swagger) extends AnyVal {
     def routedControllers(): Iterable[RoutedController] = routedControllersWithErrors._1
@@ -44,145 +33,8 @@ package object swaggerops {
 
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
-    /**
-     * This is not a great approach, but mostly works...
-     *
-     * @return (SortedSeq, NamesOfDefinitionsInCycles)
-     */
-    private def orderDefinitions(unsorted: Seq[ModelDefinition], withCircularWarnings: Boolean = false): (Seq[SortingDefinition], Seq[(String, Set[String])]) = {
-
-      // calculate the referenced definitions for each definition...
-      val defsWithRefNames: Seq[SortingDefinition] = unsorted.map { d =>
-        SortingDefinition(d, d.attributes.flatMap(_.referencedName))
-      }
-
-      type Bump = (String, Set[String])
-
-      @tailrec
-      def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], cycleAcc: Seq[Bump], bumps: Seq[Bump]): (Seq[SortingDefinition], Seq[Bump]) = {
-
-        def inAcc(name: String, accumulator: Seq[SortingDefinition] = acc) = accumulator.exists(_.name == name)
-
-        // Cleanse bumps
-        val cleansedBumps = bumps.foldLeft(Seq.empty[Bump]) {
-          case (newBumps, (bumpedName, bumpedRefs)) if bumpedRefs.forall(inAcc(_)) =>
-            newBumps
-          case (newBumps, (bumpedName, bumpedRefs)) =>
-            newBumps :+(bumpedName, bumpedRefs.filterNot(inAcc(_)))
-        }
-
-        def isBumped(name: String) = bumps.exists(_._1 == name)
-        def allBumped(refs: Set[String]) = refs.forall(isBumped)
-        def refsAllBumped(name: String) = bumps.exists(b => b._1 == name && allBumped(b._2))
-
-        def hasCycle(bumpToCheck: Bump): Boolean = {
-          def recur(bump: Bump, seen: Set[String]): Boolean = {
-            // its circular when all its references are bumps, and all those have references that are bumps, etc., etc... recursively.
-            // of course, this will result in infinite loop for the circular cases, so track the refs already checked, and if this
-            // function gets to check one again, its an obvious cycle.
-            if (seen.contains(bump._1)) {
-              true
-            } else if (!allBumped(bump._2)) {
-              false
-            } else {
-              bump._2.flatMap(b => bumps.find(_._1 == b)).any(recur(_, seen + bump._1))
-            }
-          }
-          recur(bumpToCheck, Set.empty)
-        }
-
-        val circularRefs: Set[String] = cleansedBumps.filter(hasCycle).map(_._1).toSet
-
-        val newCycleAcc = cycleAcc ++ cleansedBumps.filter(hasCycle)
-
-        if (withCircularWarnings) {
-          circularRefs.foreach { r => println(s"WARN - $r will be generated as 'def' in JsonOps (due to detected potential circular reference)") }
-        }
-
-        val newBumps = bumps.filterNot(b => circularRefs.contains(b._1))
-        val newAcc = acc ++ remaining.filter(r => circularRefs.contains(r.name))
-        val newRemaining = remaining.filterNot(r => circularRefs.contains(r.name))
-
-        // Process remaining for head/tail
-        newRemaining match {
-          case Nil =>
-            (newAcc, newCycleAcc)
-          case head +: tail if head.references.forall(r => inAcc(r, newAcc) || head.name == r) =>
-            recur(tail, newAcc :+ head, newCycleAcc, newBumps)
-          case head +: tail =>
-            recur(tail :+ head, newAcc, newCycleAcc, newBumps :+ (head.name, head.references.toSet))
-        }
-      }
-
-      recur(defsWithRefNames, Nil, Nil, Nil)
-    }
-
-    /**
-     * A synthethic model is one that is built without an actual "Definition", but rather, in response to "object" properties, with
-     * corresponding embedded "properties"...
-     * It gets named based on its "parent" which may itself be synthetic, but no matter.
-     * These need to get merged into the real "definitions" before ordering - these are needed for all code generation...
-     *
-     * this gathers all parse errors as we go, and build up definitions using "replacements"
-     */
-    private def synthethicDefinitions(): (Seq[ModelDefinition], Seq[ParseError]) = {
-
-      // FIXME delve into MapProperty.additionalProperties here also.
-
-      def makeDefinition(defName: String, prop: ObjectProperty): (ModelDefinition, Seq[ParseError]) = {
-        val attrsAndErrors = Option(prop.getProperties).map(_.asScala).getOrElse(Nil).map { case (propName, prop) =>
-          val (scalaType, required, refname, error) = prop.scalaType(defName, propName) match {
-            case -\/(parseError) => (parseError.replacement, parseError.required, None, Some(parseError))
-            case \/-((stype, required, refname)) => (stype, required, refname, None)
-          }
-          (ModelAttribute(propName, scalaType, required, refname), error)
-        }
-
-        // FIXME - change this to retain attribute order as per Swagger input...
-        val (attrs, errors) = attrsAndErrors.foldLeft((Seq.empty[ModelAttribute], Seq.empty[ParseError])) {
-          case ((attrs, errors), (attr, errOpt)) =>
-            (attrs :+ attr, errOpt.fold(errors)(errors :+ _))
-        }
-
-        (ModelDefinition(defName, attrs.toList, false), errors)
-      }
-
-      def getSynthethics(parentName: String, namedProperties: Seq[(String, Property)], defAcc: Seq[ModelDefinition] = Nil, errAcc: Seq[ParseError] = Nil): (Seq[ModelDefinition], Seq[ParseError]) = {
-        namedProperties match {
-          case Nil => (defAcc, errAcc)
-          case head +: tail =>
-            val (newDefs, newErrs) = head match {
-              case (propName, oprop: ObjectProperty) =>
-                val (defs, errs) = getSynthethics(
-                  synthethicModelName(parentName, propName),
-                  Option(oprop.getProperties).map(_.asScala).getOrElse(Nil).toSeq)
-                val (newDef, newErrors) = makeDefinition(synthethicModelName(parentName, propName), oprop)
-                (defs :+ newDef, errs ++ newErrors)
-              case (propName, aprop: ArrayProperty) if aprop.getItems.isInstanceOf[ObjectProperty] =>
-                val oprop = aprop.getItems.asInstanceOf[ObjectProperty]
-                val (defs, errs) = getSynthethics(
-                  synthethicModelName(parentName, propName),
-                  Option(oprop.getProperties).map(_.asScala).getOrElse(Nil).toSeq)
-                val (newDef, newErrors) = makeDefinition(synthethicModelName(parentName, propName), oprop)
-                (defs :+ newDef, errs ++ newErrors)
-              case _ =>
-                (Nil, Nil)
-            }
-            getSynthethics(parentName, tail, defAcc ++ newDefs, errAcc ++ newErrs)
-        }
-      }
-
-      // FIXME - expand this to include synthethics to be derived from objects defined inline to
-
-      Option(swagger.getDefinitions).map(_.asScala).getOrElse(Map.empty).toList.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
-        case ((defsAcc, errAcc), (name, model)) =>
-          val (defs, errs) = getSynthethics(name, model.properties.toSeq)
-          (defsAcc ++ defs, errAcc ++ errs)
-      }
-    }
-
-    def definitions(withCyclicWarnings: Boolean = false): Seq[ModelDefinition] = {
-      val (sorted, cyclicDefs) = orderDefinitions(definitionsWithErrors._1.toSeq, withCyclicWarnings)
+    def definitions(cyclicWarning: String => Unit = _ => ()): Seq[ModelDefinition] = {
+      val (sorted, cyclicDefs) = Definitions.order(definitionsWithErrors._1.toSeq)(cyclicWarning)
       val cyclicRefsByName = cyclicDefs.toMap
       sorted.map(_.md).map { md =>
         md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
@@ -216,10 +68,12 @@ package object swaggerops {
           (definitions :+ defn, allErrors ++ errors)
       }
 
-      val (synthDefns, synthErrors) = synthethicDefinitions()
+      val (synthDefns, synthErrors) = Definitions.getSynthetics(swagger)
 
       (realDefns ++ synthDefns, realErrors ++ synthErrors)
     }
+
+    def definitionsMap: Map[String, Model] = Option(swagger.getDefinitions).map(_.asScala).getOrElse(Map.empty).toMap
 
     def basePath: Option[String] = Option(swagger.getBasePath)
 
@@ -238,6 +92,10 @@ package object swaggerops {
          |${definitions().map(_.scalaClassImpl).mkString("\n")}
          """.stripMargin
 
+    private def logCyclicDefinitionWarning(defnName: String): Unit = {
+      println(s"WARN - $defnName will be generated as 'def' in JsonOps (due to detected potential circular reference)")
+    }
+
     def jsonFile(packageName: String): String = {
       s"""package $packageName
          |
@@ -245,7 +103,7 @@ package object swaggerops {
          |import play.api.libs.functional.syntax._
          |
          |object JsonOps {
-         |  ${definitions(true).map(_.playJsonImpl).mkString("  \n")}
+         |  ${definitions(logCyclicDefinitionWarning).map(_.playJsonImpl).mkString("  \n")}
           |}
        """.stripMargin
     }
@@ -286,6 +144,10 @@ package object swaggerops {
     def properties() = Option(model.getProperties).map(_.asScala.toMap).getOrElse(Map.empty)
   }
 
+  implicit class ObjectPropertyOps(val prop: ObjectProperty) extends AnyVal {
+    def propertiesMap(): Map[String, Property] = Option(prop.getProperties).map(_.asScala).getOrElse(Map.empty).toMap
+  }
+
   implicit class PropertyOps(val property: Property) extends AnyVal {
     def scalaType(parentName: String, propName: String): ParseError \/ (String, Boolean, Option[String]) = {
       val rawType: ParseError \/ (String, Option[String]) = property.getType match {
@@ -315,7 +177,7 @@ package object swaggerops {
             r = v => (s"Seq[${v._1}]", v._2).right
           )
         }
-        case "object" if property.isInstanceOf[ObjectProperty] => getType(synthethicModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
+        case "object" if property.isInstanceOf[ObjectProperty] => getType(Definitions.syntheticModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
         case "object" if property.isInstanceOf[MapProperty] => getType(parentName, propName, property.asInstanceOf[MapProperty]) // FIXME are these parent/prop names correct here?
         case x =>
           ParseError(s"Unsupported property type '$x'").left
@@ -348,11 +210,6 @@ package object swaggerops {
         (name, Some(name)).right
       }
     }
-  }
-
-  private def synthethicModelName(parentName: String, propertyName: String): String = {
-    def camelOf(name: String): String = name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
-    s"${camelOf(parentName)}${camelOf(propertyName)}"
   }
 
   implicit class PathOps(val path: Path) extends AnyVal {
