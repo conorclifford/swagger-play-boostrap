@@ -298,9 +298,9 @@ package object swaggerops {
         case "double" =>
           ("Double", None).right
         case "string" if "byte" == property.getFormat =>
-          ("Byte", None).right
+          ParseError(s"Unsupported property type 'string, format=byte'").left
         case "string" if "binary" == property.getFormat =>
-          ("Seq[Byte]", None).right
+          ParseError(s"Unsupported property type 'string, format=binary'").left
         case "string" if "date" == property.getFormat =>
           ("org.joda.time.DateTime", None).right
         case "string" if "date-time" == property.getFormat =>
@@ -329,7 +329,6 @@ package object swaggerops {
     }
 
     private def getType(refProp: RefProperty): ParseError \/ (String, Option[String]) = {
-      println(s"getType() of RefProperty :: ${refProp.getSimpleRef}") // FIXME
       (refProp.getSimpleRef, Some(refProp.getSimpleRef)).right
     }
 
