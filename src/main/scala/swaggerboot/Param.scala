@@ -11,7 +11,17 @@ case class Param(name: String, baseType: String, required: Boolean, paramType: P
 
   override def toString() = s"$paramName: $typeName"
 
-  def playRouteParam = defaultValue.fold(s"$paramName: $typeName") { defval => s"$paramName: $baseType = ${defaultValueToString(defval)}" }
+  def playRouteParam = defaultValue.fold(s"$paramName: $typeName") { defval => s"$paramName: $baseType ?= ${defaultValueToString(defval)}" }
+
+  def controllerSigParam = (required, defaultValue) match {
+    case (true, _) =>
+      s"$paramName: $typeName"
+    case (false, None) =>
+      s"$paramName: $typeName = None"
+    case (_, Some(_)) =>
+      // The default value is injected through the routes entry, not here.
+      s"$paramName: $baseType"
+  }
 
   private def defaultValueToString(defval: String): String = baseType match {
     case "String" => s""""$defval""""

@@ -11,61 +11,61 @@ object Definitions {
     val name = md.name
   }
 
+  case class DefinitionRef(name: String, referencedNames: Set[String])
+
   /**
    * This function both orders input definitions, *and* identifies those with cycles, for optional separate treatments...
    * This may not be the best way to do this...
    *
    * @return (SortedSeq, NamesOfDefinitionsInCycles)
    */
-  def order(unsorted: Seq[ModelDefinition])(cyclicWarning: String => Unit = _ => ()): (Seq[SortingDefinition], Seq[(String, Set[String])]) = {
+  def order(unsorted: Seq[ModelDefinition])(cyclicWarning: String => Unit = _ => ()): (Seq[SortingDefinition], Seq[DefinitionRef]) = {
 
     // calculate the referenced definitions for each definition...
     val defsWithRefNames: Seq[SortingDefinition] = unsorted.map { d =>
       SortingDefinition(d, d.attributes.flatMap(_.referencedName))
     }
 
-    type Bump = (String, Set[String])
-
     @tailrec
-    def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], cycleAcc: Seq[Bump], bumps: Seq[Bump]): (Seq[SortingDefinition], Seq[Bump]) = {
+    def recur(remaining: Seq[SortingDefinition], acc: Seq[SortingDefinition], cycleAcc: Seq[DefinitionRef], bumps: Seq[DefinitionRef]): (Seq[SortingDefinition], Seq[DefinitionRef]) = {
 
       def inAcc(name: String, accumulator: Seq[SortingDefinition] = acc) = accumulator.exists(_.name == name)
 
       // Cleanse bumps
-      val cleansedBumps = bumps.foldLeft(Seq.empty[Bump]) {
-        case (newBumps, (bumpedName, bumpedRefs)) if bumpedRefs.forall(inAcc(_)) =>
+      val cleansedBumps = bumps.foldLeft(Seq.empty[DefinitionRef]) {
+        case (newBumps, DefinitionRef(bumpedName, bumpedRefs)) if bumpedRefs.forall(inAcc(_)) =>
           newBumps
-        case (newBumps, (bumpedName, bumpedRefs)) =>
-          newBumps :+(bumpedName, bumpedRefs.filterNot(inAcc(_)))
+        case (newBumps, DefinitionRef(bumpedName, bumpedRefs)) =>
+          newBumps :+ DefinitionRef(bumpedName, bumpedRefs.filterNot(inAcc(_)))
       }
 
-      def isBumped(name: String) = bumps.exists(_._1 == name)
+      def isBumped(name: String) = bumps.exists(_.name == name)
       def allBumped(refs: Set[String]) = refs.forall(isBumped)
-      def refsAllBumped(name: String) = bumps.exists(b => b._1 == name && allBumped(b._2))
+      def refsAllBumped(name: String) = bumps.exists(b => b.name == name && allBumped(b.referencedNames))
 
-      def hasCycle(bumpToCheck: Bump): Boolean = {
-        def recur(bump: Bump, seen: Set[String]): Boolean = {
+      def hasCycle(bumpToCheck: DefinitionRef): Boolean = {
+        def recur(bump: DefinitionRef, seen: Set[String]): Boolean = {
           // its circular when all its references are bumps, and all those have references that are bumps, etc., etc... recursively.
           // of course, this will result in infinite loop for the circular cases, so track the refs already checked, and if this
           // function gets to check one again, its an obvious cycle.
-          if (seen.contains(bump._1)) {
+          if (seen.contains(bump.name)) {
             true
-          } else if (!allBumped(bump._2)) {
+          } else if (!allBumped(bump.referencedNames)) {
             false
           } else {
-            bump._2.flatMap(b => bumps.find(_._1 == b)).exists(recur(_, seen + bump._1))
+            bump.referencedNames.flatMap(b => bumps.find(_.name == b)).exists(recur(_, seen + bump.name))
           }
         }
         recur(bumpToCheck, Set.empty)
       }
 
-      val circularRefs: Set[String] = cleansedBumps.filter(hasCycle).map(_._1).toSet
+      val circularRefs: Set[String] = cleansedBumps.filter(hasCycle).map(_.name).toSet
 
       val newCycleAcc = cycleAcc ++ cleansedBumps.filter(hasCycle)
 
       circularRefs.foreach(cyclicWarning)
 
-      val newBumps = bumps.filterNot(b => circularRefs.contains(b._1))
+      val newBumps = bumps.filterNot(b => circularRefs.contains(b.name))
       val newAcc = acc ++ remaining.filter(r => circularRefs.contains(r.name))
       val newRemaining = remaining.filterNot(r => circularRefs.contains(r.name))
 
@@ -76,7 +76,7 @@ object Definitions {
         case head +: tail if head.references.forall(r => inAcc(r, newAcc) || head.name == r) =>
           recur(tail, newAcc :+ head, newCycleAcc, newBumps)
         case head +: tail =>
-          recur(tail :+ head, newAcc, newCycleAcc, newBumps :+ (head.name, head.references.toSet))
+          recur(tail :+ head, newAcc, newCycleAcc, newBumps :+ DefinitionRef(head.name, head.references.toSet))
       }
     }
 

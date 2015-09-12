@@ -35,7 +35,7 @@ package object swaggerops {
 
     def definitions(cyclicWarning: String => Unit = _ => ()): Seq[ModelDefinition] = {
       val (sorted, cyclicDefs) = Definitions.order(definitionsWithErrors._1.toSeq)(cyclicWarning)
-      val cyclicRefsByName = cyclicDefs.toMap
+      val cyclicRefsByName = cyclicDefs.map(d => d.name -> d.referencedNames).toMap
       sorted.map(_.md).map { md =>
         md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
       }
