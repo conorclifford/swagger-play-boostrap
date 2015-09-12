@@ -4,8 +4,6 @@ import io.swagger.models.auth.SecuritySchemeDefinition
 import io.swagger.models.parameters._
 import io.swagger.models.properties._
 import io.swagger.models._
-import scala.annotation.tailrec
-import scala.collection
 import scala.collection.JavaConverters._
 
 import scalaz._
@@ -18,9 +16,9 @@ import Scalaz._
 package object swaggerops {
 
   implicit class SwaggerOps(val swagger: Swagger) extends AnyVal {
-    def routedControllers(): Iterable[RoutedController] = routedControllersWithErrors._1
+    def routedControllers(): Seq[RoutedController] = routedControllersWithErrors._1
 
-    def routedControllersWithErrors(): (Iterable[RoutedController], Iterable[ParseError]) = {
+    def routedControllersWithErrors(): (Seq[RoutedController], Iterable[ParseError]) = {
       val paths = Option(swagger.getPaths).map(_.asScala.toSeq).getOrElse(Nil)
       paths.map {
         case (pathStr, path) =>
@@ -77,67 +75,12 @@ package object swaggerops {
 
     def basePath: Option[String] = Option(swagger.getBasePath)
 
-    def controllers(): Iterable[Controller] = {
+    def controllers(): Seq[Controller] = {
       swagger.routedControllers.groupBy(_.name).map {
         case (name, rcontrollers) =>
-          Controller(name, rcontrollers.flatMap(_.methods).toSeq)
-      }
+          Controller(name, rcontrollers.flatMap(_.methods))
+      }.toSeq
     }
-
-    def routesFile(): String = routedControllers.toSeq.sortBy(_.path).map(_.routesFileEntries.mkString("\n")).mkString("\n\n")
-
-    def modelsFile(packageName: String): String =
-      s"""package $packageName
-         |
-         |${definitions().map(_.scalaClassImpl).mkString("\n")}
-         """.stripMargin
-
-    private def logCyclicDefinitionWarning(defnName: String): Unit = {
-      println(s"WARN - $defnName will be generated as 'def' in JsonOps (due to detected potential circular reference)")
-    }
-
-    def jsonFile(packageName: String): String = {
-      s"""package $packageName
-         |
-         |import play.api.libs.json._
-         |import play.api.libs.functional.syntax._
-         |
-         |object JsonOps {
-         |  ${definitions(logCyclicDefinitionWarning).map(_.playJsonImpl).mkString("  \n")}
-          |}
-       """.stripMargin
-    }
-
-    def clientFile(packageName: String): String = {
-
-      def toIdentifier(name: String) = name.head.toLower +: name.tail
-
-      s"""package $packageName
-         |
-         |import play.api.libs.json.Json
-         |import play.api.libs.ws.WSClient
-         |
-         |import scala.concurrent.{ExecutionContext, Future}
-         |import scalaz._
-         |import Scalaz._
-         |
-         |object Result {
-         |  case class Success[B](responseCode: Int, message: Option[String], body: Option[B] = None)
-         |  case class Error[B](responseCode: Int, message: Option[String] = None, body: Option[B] = None)
-         |}
-         |
-         |${controllers.map(_.clientTrait).mkString("\n")}
-         |
-         |class Client(baseUrl: String, wsClient: => WSClient = play.api.libs.ws.WS.client(play.api.Play.current)) {
-         |  import JsonOps._
-         |
-         |${Indenter.indent(controllers.map(rc => s"val ${toIdentifier(rc.name)}: ${rc.name}Client = ${rc.name}Client").mkString("\n"))}
-         |
-         |${Indenter.indent(controllers.map(_.clientImpl).mkString("\n"))}
-         |}
-       """.stripMargin
-    }
-
   }
 
   implicit class ModelOps(val model: Model) extends AnyVal {

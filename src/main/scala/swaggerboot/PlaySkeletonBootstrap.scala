@@ -36,6 +36,10 @@ object PlaySkeletonBootstrap extends App {
 
   val swagger: Swagger = new SwaggerParser().read(swaggerSpec)
 
+  private def logCyclicDefinitionWarning(defnName: String): Unit = {
+    println(s"WARN - $defnName will be generated as 'def' in JsonOps (due to detected potential circular reference)")
+  }
+
   // FIXME
 //  swagger.securityDefinitions.foreach {
 //    case (name, oauth2: OAuth2Definition) =>
@@ -64,21 +68,21 @@ object PlaySkeletonBootstrap extends App {
     }
 
     writingToFile(new File(confDir, "routes")) {
-      _.println(swagger.routesFile())
+      _.println(codegen.Routes.generate(swagger.routedControllers))
     }
 
     swagger.controllers.foreach { c =>
       writingToFile(new File(controllersDir, s"${c.name}.scala")) {
-        _.println(c.scalaImpl)
+        _.println(codegen.Controller.generate(c))
       }
     }
 
     writingToFile(new File(modelsDir, "Models.scala")) {
-      _.println(swagger.modelsFile("models"))
+      _.println(codegen.Models.generate("models", swagger.definitions()))
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(swagger.jsonFile("models"))
+      _.println(codegen.JsonOps.generate("models", swagger.definitions(logCyclicDefinitionWarning)))
     }
 
   } else {
@@ -98,15 +102,15 @@ object PlaySkeletonBootstrap extends App {
     }
 
     writingToFile(new File(clientDir, "Models.scala")) {
-      _.println(swagger.modelsFile(s"clients.$clientPackageName"))
+      _.println(codegen.Models.generate(s"clients.$clientPackageName", swagger.definitions()))
     }
 
     writingToFile(new File(clientDir, "JsonOps.scala")) {
-      _.println(swagger.jsonFile(s"clients.$clientPackageName"))
+      _.println(codegen.JsonOps.generate(s"clients.$clientPackageName", swagger.definitions(logCyclicDefinitionWarning)))
     }
 
     writingToFile(new File(clientDir, "Client.scala")) {
-      _.println(swagger.clientFile(s"clients.$clientPackageName"))
+      _.println(codegen.Client.generate(s"clients.$clientPackageName", swagger.controllers()))
     }
   }
 
