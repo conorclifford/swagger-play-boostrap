@@ -1,6 +1,6 @@
 package swaggerboot.codegen
 
-import swaggerboot.{Param, MethodExpectingBody, BodyLessMethod, Method}
+import swaggerboot.{Param, Method}
 
 object Controller {
   def generate(controller: swaggerboot.Controller): String = {
@@ -37,8 +37,8 @@ object Controller {
       }
     }
 
-    method match {
-      case blMethod: BodyLessMethod =>
+    method.body match {
+      case None =>
         s"""
             |  def $name(${params.map(paramSig).mkString(", ")}) = Action {
             |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// header-param: ", "\n    //", "\n") else ""}${producesCommentary}
@@ -46,8 +46,8 @@ object Controller {
             |  }
        """.stripMargin
 
-      case expectingBodyMethod: MethodExpectingBody =>
-        val bodyModelName = if (method.httpMethod == "PATCH") s"Patch${expectingBodyMethod.body.typeName}" else expectingBodyMethod.body.typeName
+      case Some(body) =>
+        val bodyModelName = if (method.httpMethod == "PATCH") s"Patch${body.typeName}" else body.typeName
         s"""
            |  def $name(${params.map(paramSig).mkString(", ")}) = Action(parse.json) { request =>
            |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// header-param: ", "\n    //", "\n") else ""}${producesCommentary}

@@ -262,6 +262,7 @@ package object swaggerops {
             produces = produces,
             consumes = consumes,
             returnValues = returnValues,
+            operationId = op.opId,
             body = bodyOpt),
           paramErrors ++ headerErrors ++ bodyError.toList
         )
@@ -301,6 +302,8 @@ package object swaggerops {
         )
       )
     ).getOrElse(Nil)
+
+    def opId(): Option[String] = Option(op.getOperationId)
 
     def responses(): Map[String, Response] = Option(op.getResponses).map(_.asScala.toMap).getOrElse(Map.empty)
   }
