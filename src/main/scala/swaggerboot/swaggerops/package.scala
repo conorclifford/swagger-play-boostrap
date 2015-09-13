@@ -40,7 +40,7 @@ package object swaggerops {
     }
 
     def definitionsWithErrors(): (Iterable[ModelDefinition], Iterable[ParseError]) = {
-      val typesForPatching = routedControllers.flatMap(_.methods.filter(_.httpMethod == "PATCH").flatMap(_.bodyType)).toSet
+      val typesForPatching = routedControllers.flatMap(_.controller.methods.filter(_.httpMethod == "PATCH").flatMap(_.bodyType)).toSet
 
       val definitionsAndErrors: List[(ModelDefinition, Seq[ParseError])] = swagger.getDefinitions.asScala.toList.map {
         case (modelName, model) =>
@@ -76,9 +76,9 @@ package object swaggerops {
     def basePath: Option[String] = Option(swagger.getBasePath)
 
     def controllers(): Seq[Controller] = {
-      swagger.routedControllers.groupBy(_.name).map {
+      swagger.routedControllers.groupBy(_.controller.name).map {
         case (name, rcontrollers) =>
-          Controller(name, rcontrollers.flatMap(_.methods))
+          Controller(name, rcontrollers.flatMap(_.controller.methods))
       }.toSeq
     }
   }
@@ -270,7 +270,7 @@ package object swaggerops {
           (methods :+ method, allErrors ++ errors)
       }
 
-      (RoutedController(scalaPath, controllerName, methods), errors)
+      (RoutedController(scalaPath, Controller(controllerName, methods)), errors)
     }
 
     private def parseResources(input: String) : Seq[String] = {

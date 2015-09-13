@@ -5,10 +5,11 @@ import swaggerboot.{Param, Method, RoutedController}
 object Routes {
 
   def generate(controllers: Seq[RoutedController]): String = {
-    controllers.sortBy(_.path).map { controller =>
+    controllers.sortBy(_.path).map { routed =>
       val routesFileEntries: Seq[String] = {
+        val controller = routed.controller
         controller.methods.map { method =>
-          routeFileEntry(method, controller.path, controller.name)
+          routeFileEntry(method, routed.path, controller.name)
         }
       }
       routesFileEntries.mkString("\n")
