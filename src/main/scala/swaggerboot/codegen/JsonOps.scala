@@ -49,8 +49,12 @@ object JsonOps {
     def generateLazyRead(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyRead(reads${attribute.scalaType})"""
     def generateLazyReadNullable(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyReadNullable(reads${attribute.scalaType})"""
 
-    def generatePlainReadJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").read[String].map(new org.joda.time.DateTime(_))"""
-    def generatePlainReadNullableJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").readNullable[String].map(_.map(new org.joda.time.DateTime(_)))"""
+    def generatePlainReadJodaDate(attribute: ModelAttribute): String = {
+      s"""(__ \\ "${attribute.name}").read[String].map(new org.joda.time.DateTime(_))"""
+    }
+    def generatePlainReadNullableJodaDate(attribute: ModelAttribute): String = {
+      s"""(__ \\ "${attribute.name}").readNullable[String].map(_.map(new org.joda.time.DateTime(_)))"""
+    }
 
     def generateReadEnum(attribute: ModelAttribute): String = {
       // Get is assumed to be safe in this case...
@@ -87,8 +91,18 @@ object JsonOps {
     def generateLazyWrite(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWrite(writes${attribute.scalaType})"""
     def generateLazyWriteNullable(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWriteNullable(writes${attribute.scalaType})"""
 
-    def generatePlainWriteJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").write[String].contramap[org.joda.time.DateTime](_.toString)"""
-    def generatePlainWriteNullableJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[org.joda.time.DateTime]](_.map(_.toString))"""
+    def generatePlainWriteJodaDate(attribute: ModelAttribute): String = {
+      // Assume date-time otherwise
+      val formatFunction = if (attribute.swaggerType.format.exists(_ == "date")) "date" else "dateTime"
+      val mapFunction = s"org.joda.time.format.ISODateTimeFormat.$formatFunction().print"
+      s"""(__ \\ "${attribute.name}").write[String].contramap[org.joda.time.DateTime]($mapFunction)"""
+    }
+    def generatePlainWriteNullableJodaDate(attribute: ModelAttribute): String = {
+      // Assume date-time otherwise
+      val formatFunction = if (attribute.swaggerType.format.exists(_ == "date")) "date" else "dateTime"
+      val mapFunction = s"org.joda.time.format.ISODateTimeFormat.$formatFunction().print"
+      s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[org.joda.time.DateTime]](_.map($mapFunction))"""
+    }
 
     def generateWriteEnum(attribute: ModelAttribute): String = {
       // Get is assumed to be safe in this case...

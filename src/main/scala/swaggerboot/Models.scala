@@ -11,7 +11,9 @@ case class Body(typeName: String)
 
 case class ModeledEnum(values: Seq[String])
 
-case class ModelAttribute(name: String, scalaType: String, required: Boolean, referencedName: Option[String], modeledEnum: Option[ModeledEnum])
+case class SwaggerType(baseType: String, format: Option[String])
+
+case class ModelAttribute(name: String, swaggerType: SwaggerType, scalaType: String, required: Boolean, referencedName: Option[String], modeledEnum: Option[ModeledEnum])
 
 case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], supportPatch: Boolean, cyclicReferences: Option[Set[String]] = None)
 

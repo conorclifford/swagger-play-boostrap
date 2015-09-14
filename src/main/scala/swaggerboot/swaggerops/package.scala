@@ -49,7 +49,7 @@ package object swaggerops {
               case -\/(parseError) => (parseError.replacement, parseError.required, None, Some(parseError))
               case \/-((stype, required, refname)) => (stype, required, refname, None)
             }
-            (ModelAttribute(propName, scalaType, required, refname, prop.modeledEnum()), error)
+            (ModelAttribute(propName, prop.swaggerType, scalaType, required, refname, prop.modeledEnum()), error)
           }
 
           // FIXME - change this to retain attribute order as per Swagger input...
@@ -96,6 +96,8 @@ package object swaggerops {
       case strProp: StringProperty => Option(strProp.getEnum).map(_.asScala).map(ModeledEnum(_))
       case _ => None
     }
+
+    def swaggerType(): SwaggerType = SwaggerType(property.getType, Option(property.getFormat))
 
     def scalaType(parentName: String, propName: String): ParseError \/ (String, Boolean, Option[String]) = {
       val rawType: ParseError \/ (String, Option[String]) = property.getType match {
