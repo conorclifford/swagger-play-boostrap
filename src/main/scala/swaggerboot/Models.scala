@@ -16,6 +16,8 @@ case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], suppor
 case class ReturnType(name: String, isArray: Boolean)
 case class ReturnValue(rcode: Int, description: Option[String], returnType: Option[ReturnType])
 
+case class MethodDelegate(packageName: String, className: String, functionName: String, method: Method)
+
 case class Method(routePath: String,
                   httpMethod: String,
                   name: String,
@@ -32,9 +34,20 @@ case class Method(routePath: String,
     case Nil => Seq("application/json")
     case x => x
   }
+
+  val delegate = operationId.map { oid =>
+    val bits = oid.split("\\.")
+    val fname = bits.last
+    val cname = bits.dropRight(1).last
+    val pname = bits.dropRight(2).mkString(".")
+    require(pname != codegen.ControllerDelegateTraits.PackageName, "Illegal packagename for delegates")
+    MethodDelegate(pname, cname, fname, this)
+  }
 }
 
 case class Controller(name: String, methods: Seq[Method])
+
+case class ControllerDelegate(packageName: String, className: String, methods: Seq[MethodDelegate])
 
 case class RoutedController(path: String, controller: Controller)
 

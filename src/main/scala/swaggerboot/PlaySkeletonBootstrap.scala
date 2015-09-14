@@ -58,9 +58,10 @@ object PlaySkeletonBootstrap extends App {
     val confDir = new File(outputDir, "conf")
     val appDir = new File(outputDir, "app")
     val controllersDir = new File(appDir, "controllers")
+    val delegateTraitsDir = new File(controllersDir, "delegates")
     val modelsDir = new File(appDir, "models")
 
-    Seq(confDir, controllersDir, modelsDir).map { dir =>
+    Seq(confDir, controllersDir, delegateTraitsDir, modelsDir).map { dir =>
       (dir, dir.mkdirs())
     }.find(!_._2).foreach { case (dir, _) =>
       System.err.println(s"Failed to create directory '$dir'")
@@ -74,6 +75,12 @@ object PlaySkeletonBootstrap extends App {
     swagger.controllers.foreach { c =>
       writingToFile(new File(controllersDir, s"${c.name}.scala")) {
         _.println(codegen.Controller.generate(c))
+      }
+    }
+
+    Delegates.extract(swagger.controllers).foreach { delegate =>
+      writingToFile(new File(delegateTraitsDir, s"${delegate.className}.scala")) {
+        _.println(codegen.ControllerDelegateTraits.generate(delegate))
       }
     }
 
