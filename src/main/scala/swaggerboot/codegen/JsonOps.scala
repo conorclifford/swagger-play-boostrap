@@ -27,16 +27,19 @@ object JsonOps {
       val nullable = !attribute.required || forceOptional
       val lazily = definition.cyclicReferences.exists(_.contains(attribute.scalaType))
       val jodaDate = "org.joda.time.DateTime" == attribute.scalaType
+      val isEnum = attribute.modeledEnum.nonEmpty
 
-      (nullable, lazily, jodaDate) match {
-        case (false, false, false) => generatePlainRead(attribute)
-        case (true,  false, false) => generatePlainReadNullable(attribute)
-        case (false, true,  false) => generateLazyRead(attribute)
-        case (true,  true,  false) => generateLazyReadNullable(attribute)
-        case (false, false, true ) => generatePlainReadJodaDate(attribute)
-        case (true,  false, true ) => generatePlainReadNullableJodaDate(attribute)
-        case (false, true,  true ) => sys.error("Should never need to process writing a DateTime lazily")
-        case (true,  true,  true ) => sys.error("Should never need to process writing a DateTime lazily")
+      (nullable, lazily, jodaDate, isEnum) match {
+        case (false, false, false, false) => generatePlainRead(attribute)
+        case (true,  false, false, false) => generatePlainReadNullable(attribute)
+        // Cannot have enum and lazy in same case.
+        case (false, true,  false, _) => generateLazyRead(attribute)
+        case (true,  true,  false, _) => generateLazyReadNullable(attribute)
+        // cannot have JodaDate and either lazy or enum in same case
+        case (false, _, true, _ ) => generatePlainReadJodaDate(attribute)
+        case (true,  _, true, _ ) => generatePlainReadNullableJodaDate(attribute)
+        case (false, _, _, true) => generateReadEnum(attribute)
+        case (true, _, _, true) => generateReadNullableEnum(attribute)
       }
     }
 
@@ -49,20 +52,33 @@ object JsonOps {
     def generatePlainReadJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").read[String].map(new org.joda.time.DateTime(_))"""
     def generatePlainReadNullableJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").readNullable[String].map(_.map(new org.joda.time.DateTime(_)))"""
 
+    def generateReadEnum(attribute: ModelAttribute): String = {
+      // Get is assumed to be safe in this case...
+      val enumValue = attribute.modeledEnum.get
+      s"""(__ \\ "${attribute.name}").read[String].map(${Enums.wrappingObjectName(definition.name, attribute.name)}.apply)"""
+    }
+
+    def generateReadNullableEnum(attribute: ModelAttribute): String = {
+      // Get is assumed to be safe in this case...
+      val enumValue = attribute.modeledEnum.get
+      s"""(__ \\ "${attribute.name}").readNullable[String].map(_.map(${Enums.wrappingObjectName(definition.name, attribute.name)}.apply))"""
+    }
+
     def generateWrite(attribute: ModelAttribute, forceOptional: Boolean = false): String = {
       val nullable = !attribute.required || forceOptional
       val lazily = definition.cyclicReferences.exists(_.contains(attribute.scalaType))
       val jodaDate = "org.joda.time.DateTime" == attribute.scalaType
+      val isEnum = attribute.modeledEnum.nonEmpty
 
-      (nullable, lazily, jodaDate) match {
-        case (false, false, false) => generatePlainWrite(attribute)
-        case (true,  false, false) => generatePlainWriteNullable(attribute)
-        case (false, true,  false) => generateLazyWrite(attribute)
-        case (true,  true,  false) => generateLazyWriteNullable(attribute)
-        case (false, false, true ) => generatePlainWriteJodaDate(attribute)
-        case (true,  false, true ) => generatePlainWriteNullableJodaDate(attribute)
-        case (false, true,  true ) => sys.error("Should never need to process writing a DateTime lazily")
-        case (true,  true,  true ) => sys.error("Should never need to process writing a DateTime lazily")
+      (nullable, lazily, jodaDate, isEnum) match {
+        case (false, false, false, false) => generatePlainWrite(attribute)
+        case (true,  false, false, false) => generatePlainWriteNullable(attribute)
+        case (false, true,  false, _) => generateLazyWrite(attribute)
+        case (true,  true,  false, _) => generateLazyWriteNullable(attribute)
+        case (false, _, true, _ ) => generatePlainWriteJodaDate(attribute)
+        case (true,  _, true, _ ) => generatePlainWriteNullableJodaDate(attribute)
+        case (false, _, _, true) => generateWriteEnum(attribute)
+        case (true, _, _, true) => generateWriteNullableEnum(attribute)
       }
     }
 
@@ -73,6 +89,18 @@ object JsonOps {
 
     def generatePlainWriteJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").write[String].contramap[org.joda.time.DateTime](_.toString)"""
     def generatePlainWriteNullableJodaDate(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[org.joda.time.DateTime]](_.map(_.toString))"""
+
+    def generateWriteEnum(attribute: ModelAttribute): String = {
+      // Get is assumed to be safe in this case...
+      val enumValue = attribute.modeledEnum.get
+      s"""(__ \\ "${attribute.name}").write[String].contramap[${Enums.fqn(definition.name, attribute.name)}](${Enums.wrappingObjectName(definition.name, attribute.name)}.unapply)"""
+    }
+
+    def generateWriteNullableEnum(attribute: ModelAttribute): String = {
+      // Get is assumed to be safe in this case...
+      val enumValue = attribute.modeledEnum.get
+      s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[${Enums.fqn(definition.name, attribute.name)}]](_.map(${Enums.wrappingObjectName(definition.name, attribute.name)}.unapply))"""
+    }
 
     val playJsonDeclType = if (definition.cyclicReferences.isEmpty) "val" else "def"
     val attributes = definition.attributes

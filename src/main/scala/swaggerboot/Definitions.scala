@@ -101,7 +101,7 @@ object Definitions {
           l = parseError => (parseError.replacement, parseError.required, None, Some(parseError)),
           r = { case (stype, required, refname) => (stype, required, refname, None) }
         )
-        (ModelAttribute(propName, scalaType, required, refname), error)
+        (ModelAttribute(propName, scalaType, required, refname, prop.modeledEnum), error)
       }
 
       // FIXME - change this to retain attribute order as per Swagger input...

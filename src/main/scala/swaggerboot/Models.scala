@@ -9,7 +9,9 @@ case class Param(name: String, baseType: String, required: Boolean, paramType: P
 
 case class Body(typeName: String)
 
-case class ModelAttribute(name: String, scalaType: String, required: Boolean, referencedName: Option[String])
+case class ModeledEnum(values: Seq[String])
+
+case class ModelAttribute(name: String, scalaType: String, required: Boolean, referencedName: Option[String], modeledEnum: Option[ModeledEnum])
 
 case class ModelDefinition(name: String, attributes: Seq[ModelAttribute], supportPatch: Boolean, cyclicReferences: Option[Set[String]] = None)
 

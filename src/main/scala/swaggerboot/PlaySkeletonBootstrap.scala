@@ -92,6 +92,11 @@ object PlaySkeletonBootstrap extends App {
       _.println(codegen.JsonOps.generate("models", swagger.definitions(logCyclicDefinitionWarning)))
     }
 
+    writingToFile(new File(modelsDir, "Enums.scala")) {
+      // Disallowing unknown values in enum in server mode..
+      _.println(codegen.Enums.generate("models", swagger.definitions(), false))
+    }
+
   } else {
     val title = for {
       info <- Option(swagger.getInfo)
@@ -108,16 +113,23 @@ object PlaySkeletonBootstrap extends App {
       System.exit(1)
     }
 
+    val clientModelPackageFqn = s"clients.$clientPackageName"
+
     writingToFile(new File(clientDir, "Models.scala")) {
-      _.println(codegen.Models.generate(s"clients.$clientPackageName", swagger.definitions()))
+      _.println(codegen.Models.generate(clientModelPackageFqn, swagger.definitions()))
     }
 
     writingToFile(new File(clientDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate(s"clients.$clientPackageName", swagger.definitions(logCyclicDefinitionWarning)))
+      _.println(codegen.JsonOps.generate(clientModelPackageFqn, swagger.definitions(logCyclicDefinitionWarning)))
     }
 
     writingToFile(new File(clientDir, "Client.scala")) {
-      _.println(codegen.Client.generate(s"clients.$clientPackageName", swagger.controllers()))
+      _.println(codegen.Client.generate(clientModelPackageFqn, swagger.controllers()))
+    }
+
+    writingToFile(new File(clientDir, "Enums.scala")) {
+      // Allow unknown values in enum in client mode..
+      _.println(codegen.Enums.generate(clientModelPackageFqn, swagger.definitions(), true))
     }
   }
 

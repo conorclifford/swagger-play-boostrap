@@ -13,9 +13,15 @@ object Models {
   private def generateCaseClass(definition: ModelDefinition): String = {
     val scalaName = toScalaName(definition.name)
 
-    def mainClassAttribute(attr: ModelAttribute): String = attr match {
-      case ModelAttribute(name, scalaType, false, _) => s"${toScalaName(name)}: Option[$scalaType] = None"
-      case ModelAttribute(name, scalaType, true, _) => s"${toScalaName(name)}: $scalaType"
+    def attributeLine(attr: ModelAttribute): String = attr match {
+      case ModelAttribute(name, scalaType, false, _, None) =>
+        s"${toScalaName(name)}: Option[$scalaType] = None"
+      case ModelAttribute(name, scalaType, true, _, None)  =>
+        s"${toScalaName(name)}: $scalaType"
+      case ModelAttribute(name, scalaType, false, _, Some(enumValue)) =>
+        s"${toScalaName(name)}: Option[${Enums.fqn(definition.name, attr.name)}] = None"
+      case ModelAttribute(name, scalaType, true, _, Some(enumValue)) =>
+        s"${toScalaName(name)}: ${Enums.fqn(definition.name, attr.name)}"
     }
 
     val scalaPatchClassImpl = if (!definition.supportPatch) {
@@ -24,9 +30,7 @@ object Models {
       s"""
           |case class Patch${definition.name}(
           |  ${
-                definition.attributes.map {
-                  case ModelAttribute(name, scalaType, _, _) => s"${toScalaName(name)}: Option[$scalaType] = None"
-                }.mkString(",\n  ")
+                definition.attributes.map(a => attributeLine(a.copy(required = false))).mkString(",\n  ")
               }
           |)
           |""".stripMargin
@@ -34,7 +38,7 @@ object Models {
 
     s"""
        |case class $scalaName(
-       |  ${definition.attributes.map(mainClassAttribute).mkString(",\n  ")}
+       |  ${definition.attributes.map(attributeLine).mkString(",\n  ")}
        |)${scalaPatchClassImpl}
      """.stripMargin
   }
