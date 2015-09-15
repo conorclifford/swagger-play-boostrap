@@ -16,4 +16,6 @@ package object codegen {
       n
     }
   }
+
+  def camelOf(name: String): String = name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
 }

@@ -20,8 +20,8 @@ object Enums {
   private def generate(definitionName: String, propertyName: String, modeledEnum: ModeledEnum, allowUnknown: Boolean): String = {
     val traitName = sealedTraitName(definitionName, propertyName)
 
-    def instanceCaseObject(name: String) = s"case object ${munge(name)} extends $traitName"
-    val unknownValueDefinitionApply = if (allowUnknown) s"case class UnknownValue(value: String) extends $traitName" else ""
+    def instanceCaseObject(name: String) = s"""case object ${munge(name)} extends $traitName { override val name = "$name" }"""
+    val unknownValueDefinitionApply = if (allowUnknown) s"""case class UnknownValue(value: String) extends $traitName { override val name = s"UnknownValue($$value)" }""" else ""
 
     def applyCaseEntry(name: String) = s"""case "$name" => ${munge(name)}"""
 
@@ -30,7 +30,10 @@ object Enums {
 
     s"""
        |object ${wrappingObjectName(definitionName, propertyName)} {
-       |  sealed trait $traitName
+       |  sealed trait $traitName {
+       |    def name: String
+       |    override def toString(): String = name
+       |  }
        |
        |  ${modeledEnum.values.map(instanceCaseObject).mkString("\n  ")}
        |  $unknownValueDefinitionApply
@@ -54,11 +57,11 @@ object Enums {
      """.stripMargin
   }
 
-  def wrappingObjectName(definitionName: String, propertyName: String): String = s"${sealedTraitName(definitionName, propertyName)}Enum"
+  def wrappingObjectName(definitionName: String, propertyName: String): String = munge(s"${sealedTraitName(definitionName, propertyName)}Enum")
 
-  private def sealedTraitName(definitionName: String, propertyName: String): String = definitionName ++ (propertyName.head.toUpper +: propertyName.tail)
+  private def sealedTraitName(definitionName: String, propertyName: String): String = munge(definitionName ++ (propertyName.head.toUpper +: propertyName.tail))
 
   def fqn(definitionName: String, propertyName: String): String = s"${wrappingObjectName(definitionName, propertyName)}.${sealedTraitName(definitionName, propertyName)}"
 
-  private def munge(name: String) = name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", "")
+  private def munge(name: String) = camelOf(name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", ""))
 }

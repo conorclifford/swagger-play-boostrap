@@ -148,7 +148,6 @@ object Definitions {
   }
 
   def syntheticModelName(parentName: String, propertyName: String): String = {
-    def camelOf(name: String): String = name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
-    s"${camelOf(parentName)}${camelOf(propertyName)}"
+    s"${codegen.camelOf(parentName)}${codegen.camelOf(propertyName)}"
   }
 }
