@@ -60,5 +60,5 @@ object Enums {
 
   def fqn(definitionName: String, propertyName: String): String = s"${wrappingObjectName(definitionName, propertyName)}.${sealedTraitName(definitionName, propertyName)}"
 
-  private def munge(name: String) = name.replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", "")
+  private def munge(name: String) = name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", "")
 }
