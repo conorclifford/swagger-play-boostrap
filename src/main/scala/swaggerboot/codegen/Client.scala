@@ -21,12 +21,18 @@ object Client {
         |  case class Error[B](responseCode: Int, message: Option[String] = None, body: Option[B] = None)
         |}
         |
+        |case class RequestTimeout(duration: scala.concurrent.duration.Duration)
+        |
         |${controllers.map(clientTrait).mkString("\n")}
         |
-        |class Client(baseUrl: String, wsClient: => WSClient = play.api.libs.ws.WS.client(play.api.Play.current)) {
+        |trait Client {
+        |${Indenter.indent(controllers.map(rc => s"def ${toIdentifier(rc.name)}: ${rc.name}Client").mkString("\n"))}
+        |}
+        |
+        |class ClientImpl(baseUrl: String, wsClient: => WSClient = play.api.libs.ws.WS.client(play.api.Play.current)) extends Client {
         |  import JsonOps._
         |
-        |${Indenter.indent(controllers.map(rc => s"val ${toIdentifier(rc.name)}: ${rc.name}Client = ${rc.name}Client").mkString("\n"))}
+        |${Indenter.indent(controllers.map(rc => s"override val ${toIdentifier(rc.name)}: ${rc.name}Client = ${rc.name}Client").mkString("\n"))}
         |
         |${Indenter.indent(controllers.map(clientImpl).mkString("\n"))}
         |}
@@ -86,7 +92,7 @@ object Client {
       ).flatten :+
         s"""contentType: String = "${method.acceptableContentTypes.headOption.getOrElse("application/json")}""""
 
-    s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
+    s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext, requestTimout: RequestTimeout): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
   }
 
   def clientMethod(method: Method): String = {
@@ -148,7 +154,7 @@ object Client {
        |  val headers = Seq(
        |    Some("Content-Type" -> s"$$contentType; charset=UTF-8")${if (method.headerParams.nonEmpty) ",\n    " else ""}${method.headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
        |  $queryParamsSnippet
-       |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*)$withBody.$executeMethod.map {
+       |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*).withRequestTimeout(requestTimeout.duration.toMillis)$withBody.$executeMethod.map {
        |${
             method.returnValues.toSeq.sortBy(_.rcode).map {
               case ReturnValue(rcode, message, None) if rcode < 400 =>
