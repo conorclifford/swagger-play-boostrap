@@ -92,7 +92,7 @@ object Client {
       ).flatten :+
         s"""contentType: String = "${method.acceptableContentTypes.headOption.getOrElse("application/json")}""""
 
-    s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext, requestTimout: RequestTimeout): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
+    s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext, requestTimeout: RequestTimeout): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
   }
 
   def clientMethod(method: Method): String = {
