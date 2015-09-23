@@ -337,7 +337,7 @@ package object swaggerops {
         case rmod: RefModel => Option(rmod.getSimpleRef)
         case amod: ArrayModel => amod.getItems match {
           case ref: RefProperty => Option(ref.getSimpleRef).map(m => s"Seq[$m]")
-          case _ => None
+          case prop: AbstractProperty => prop.scalaType("BodyParam", "Body").toOption.map(st => s"Seq[${st._1}]")
         }
         case _ => None
       }
