@@ -83,16 +83,28 @@ object Client {
       s"${param.name.toLowerCase}: $typeName"
     }
 
+    val contentTypeParam = if (includeContentType(method)) {
+      Option(s"""contentType: String = "${method.acceptableContentTypes.headOption.getOrElse("application/json")}"""")
+    } else {
+      None
+    }
+
     val mandatoryParams = method.params.filter(_.required).map(p => Some(paramSig(p))) :+ bodyParam
     val optionalParams = method.params.filterNot(_.required).map(p => Some(s"${paramSig(p)} = None"))
     val parameters =
       ( mandatoryParams ++
         optionalParams ++
         method.headerParams.map(p => Some(paramSig(p)))
-      ).flatten :+
-        s"""contentType: String = "${method.acceptableContentTypes.headOption.getOrElse("application/json")}""""
+      ).flatten ++ contentTypeParam.toSeq
 
     s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext, requestTimeout: RequestTimeout): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
+  }
+
+  private def includeContentType(method: Method): Boolean = {
+    method.httpMethod match {
+      case "PUT" | "POST" | "PATCH" | "DELETE" if method.body.isEmpty => false
+      case _ => true
+    }
   }
 
   def clientMethod(method: Method): String = {
@@ -147,12 +159,23 @@ object Client {
       case Some(x) => s"""Some("$x")"""
     }
 
+    val contentTypeCheck = if (includeContentType(method)) {
+      s"""require(Seq(${method.acceptableContentTypes.mkString("\"", "\", \"", "\"")}) contains contentType, "Unacceptable contentType specified")"""
+    } else {
+      ""
+    }
+
+    val contentTypeHeader = if (includeContentType(method)) {
+      s"""Some("Content-Type" -> s"$$contentType; charset=UTF-8")"""
+    } else {
+      ""
+    }
+
 
     s"""${clientSignature(method)} = {
-       |  require(Seq(${method.acceptableContentTypes.mkString("\"", "\", \"", "\"")}) contains contentType, "Unacceptable contentType specified")
-       |
+       |  $contentTypeCheck
        |  val headers = Seq(
-       |    Some("Content-Type" -> s"$$contentType; charset=UTF-8")${if (method.headerParams.nonEmpty) ",\n    " else ""}${method.headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
+       |    $contentTypeHeader${if (includeContentType(method) && method.headerParams.nonEmpty) ",\n    " else ""}${method.headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten
        |  $queryParamsSnippet
        |  wsClient.url(s"$$baseUrl$path")$withQueryString.withHeaders(headers:_*).withRequestTimeout(requestTimeout.duration.toMillis)$withBody.$executeMethod.map {
        |${
