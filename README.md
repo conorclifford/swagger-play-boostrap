@@ -25,6 +25,13 @@ use a trailing `-client` flag to generate client code instead:
 $ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output -client
 ```
 
+use a trailing `-replace` flag to generate code in-place over existing generated code - this will remove existing directory for the API being generated for, and recreate new code in its place (this is only supported for *client* code generation):
+
+```
+$ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output -client -replace
+```
+
+
 This generates client code similar to:
 
 ```
