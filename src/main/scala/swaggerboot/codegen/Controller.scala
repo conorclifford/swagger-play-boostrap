@@ -63,7 +63,11 @@ object Controller {
 
   private def paramSig(param: Param) = {
     val required = param.required
-    val paramName = toScalaName(param.name.toLowerCase) // FIXME - should only lowercase the first char?
+    val paramName = param.paramType match {
+      case HeaderParam => param.name // Keep header params exactly as per API - only used in comments for now anyway.
+      case _ => toScalaName(param.name.toLowerCase) // FIXME - should only lowercase the first char?
+    }
+
     val baseType = param.baseType
     val typeName = if (required) baseType else s"Option[$baseType]"
 
