@@ -12,12 +12,20 @@ This is most likely the wrong way to integrate API-first (using Swagger) design 
 
 ## Service bootstrapping
 
+Generation of code routes, controllers, `case class`es for all Definitions, with supporting Play-json `Reads` and `Writes` implicits, for a provided swagger API definition (in either JSON or YAML).
+
+**This code is generated for Play 2.4**
+
 ```
 $ sbt assembly
 $ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output
 ```
 
 ## Client Generation
+
+This tool can also generate client code, which includes Clients to interact with resources, `case class`es for all Definitions, with supporting Play-json `Reads` and `Writes` implicits.
+
+**This generated code is built for, and tested with, Play 2.4**. Unfortunately, this includes when using this generated client separately to a Play app (see below), due to various API signature changes in 2.4.
 
 use a trailing `-client` flag to generate client code instead:
 
@@ -44,8 +52,8 @@ This generates client code similar to:
 ```
 
 * `Models.scala` contains generated `case class` instances for Swagger definitions.
-* `JsonOps.scala` contains `implicit` [Play-Json](https://www.playframework.com/documentation/2.4.x/ScalaJson#The-Play-JSON-library) `Reads` and `Writes` (i.e. JSON marshalling/unmarshalling implicits)
-* `Client.scala` contains generated client abstractions. These clients use [Play-WS](https://www.playframework.com/documentation/2.4.x/ScalaWS) to interact with the remote REST service in a non-blocking manner. Note, this generated code also has a dependency on [Scalaz](https://github.com/scalaz/scalaz), e.g.
+* `JsonOps.scala` contains `implicit` [Play-Json (2.4)](https://www.playframework.com/documentation/2.4.x/ScalaJson#The-Play-JSON-library) `Reads` and `Writes` (i.e. JSON marshalling/unmarshalling implicits)
+* `Client.scala` contains generated client abstractions. These clients use [Play-WS (2.4)](https://www.playframework.com/documentation/2.4.x/ScalaWS) to interact with the remote REST service in a non-blocking manner. Note, this generated code also has a dependency on [Scalaz](https://github.com/scalaz/scalaz), e.g.
 
 ```
 libraryDendenencies += "org.scalaz" %% "scalaz-core" % "7.1.3"
