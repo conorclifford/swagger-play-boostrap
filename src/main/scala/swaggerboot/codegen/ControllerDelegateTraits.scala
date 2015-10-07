@@ -14,7 +14,8 @@ object ControllerDelegateTraits {
        |trait ${delegate.className} {
        |  ${
             delegate.methods.map { method =>
-              s"def ${toScalaName(method.functionName)}(${paramList(method)})(implicit request: play.api.mvc.RequestHeader): scala.concurrent.Future[play.api.mvc.Result]"
+              val requestType = method.method.body.fold("RequestHeader")(_ => "Request[play.api.libs.json.JsValue]")
+              s"def ${toScalaName(method.functionName)}(${paramList(method)})(implicit request: play.api.mvc.$requestType): scala.concurrent.Future[play.api.mvc.Result]"
             }.mkString("\n  ")
           }
        |}

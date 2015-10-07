@@ -47,7 +47,7 @@ object Controller {
 
     s"""
         |  def ${toScalaName(name)}(${paramSigs(params)}) = Action.async$parsing { implicit request =>
-        |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// FIXME header-param: ", "\n    //", "\n") else ""}
+        |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// header: ", "\n    // header: ", "\n") else ""}
         |    ${valName(delegate.className)}.${toScalaName(name)}(${paramNameList(params)})
         |  }
    """.stripMargin
