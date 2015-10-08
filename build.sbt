@@ -8,4 +8,4 @@ libraryDependencies ++= Seq(
   "commons-io" % "commons-io" % "2.4"
 )
 
-mainClass in assembly := Some("swaggerboot.PlaySkeletonBootstrap")
+mainClass in assembly := Some("swaggerboot.SwaggerCodeGenerator")

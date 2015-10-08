@@ -25,9 +25,10 @@ $ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/
 
 This tool can also generate client code, which includes Clients to interact with resources, `case class`es for all Definitions, with supporting Play-json `Reads` and `Writes` implicits.
 
-**This generated code is built for, and tested with, Play 2.4**. Unfortunately, this includes when using this generated client separately to a Play app (see below), due to various API signature changes in 2.4.
+**This generated code is built for, and tested with, Play 2.4**. Unfortunately, this includes when using this generated client separately to a Play app (see below), due to various API signature changes in 2.4. That said, an **experimental** `-play23` mode can be used to generate Play 2.3 client code - this is **experimental** and may be less tested than normal (2.4) generated code.
 
-use a trailing `-client` flag to generate client code instead:
+
+Use a trailing `-client` flag to generate client code instead:
 
 ```
 $ scala target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar /path/to/swagger.yaml /path/to/generate/output -client
