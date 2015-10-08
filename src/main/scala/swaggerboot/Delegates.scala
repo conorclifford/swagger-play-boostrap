@@ -17,6 +17,6 @@ object Delegates {
 
   def getDefault(controller: Controller, method: Method): MethodDelegate = {
     require(method.delegate.isEmpty)
-    MethodDelegate("delegates", controller.name, method.name, method)
+    MethodDelegate("logic", controller.name, method.name, method)
   }
 }
