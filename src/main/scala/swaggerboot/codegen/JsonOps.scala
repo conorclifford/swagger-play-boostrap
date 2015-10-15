@@ -14,7 +14,7 @@ object JsonOps {
           |import play.api.libs.functional.syntax._
           |
           |object JsonOps {
-          |  ${definitions.map(playJsonImpl).mkString("  \n")}
+          |  ${definitions.filterNot(_.attributes.isEmpty).map(playJsonImpl).mkString("  \n")}
           |}
        """.stripMargin
   }

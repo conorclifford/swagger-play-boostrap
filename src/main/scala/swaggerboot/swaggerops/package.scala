@@ -29,6 +29,10 @@ package object swaggerops {
       }
     }
 
+    def containsCsvParams(): Boolean = {
+      routedControllers().exists(_.controller.methods.exists(_.params.exists(_.baseType == "Seq[String]")))
+    }
+
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
 
     def definitions(cyclicWarning: String => Unit = _ => ()): Seq[ModelDefinition] = {
@@ -317,10 +321,10 @@ package object swaggerops {
 
   implicit class ParameterOps(val param: Parameter) extends AnyVal {
     def typeName(): ParseError \/ String = param match {
-      case p: QueryParameter => scalaType(p.getType)
-      case p: PathParameter => scalaType(p.getType)
+      case p: QueryParameter => scalaType(p.getType, Option(p.getFormat))
+      case p: PathParameter => scalaType(p.getType, Option(p.getFormat))
       case p: BodyParameter => getReference(p)
-      case p: HeaderParameter => scalaType(p.getType)
+      case p: HeaderParameter => scalaType(p.getType, Option(p.getFormat))
       case _ =>
         ParseError(s"Unsupported swaggerboot.Param type ${param.getClass.getName}").left
     }
@@ -345,10 +349,18 @@ package object swaggerops {
       Option(p.getSchema).flatMap(processModel) \/> ParseError("Missing Schema/Ref for a Body Parameter")
     }
 
-    private def scalaType(swaggerType: String): ParseError \/ String = swaggerType match {
-      case "string" => "String".right
-      case "integer" => "Int".right
-      case "boolean" => "Boolean".right
+    private def scalaType(swaggerType: String, format: Option[String]): ParseError \/ String = (swaggerType, format) match {
+      case ("string", Some("date"))     => "org.joda.time.DateTime".right
+      case ("string", Some("datetime")) => "org.joda.time.DateTime".right
+      case ("string", Some("csv"))      => "Seq[String]".right
+      case ("string", _)                => "String".right
+      case ("integer", Some("int32"))   => "Int".right
+      case ("integer", Some("int64"))   => "Long".right
+      case ("integer", _)               => "Long".right
+      case ("number", Some("float"))    => "Float".right
+      case ("number", Some("double"))   => "Double".right
+      case ("number", _)                => "Double".right
+      case ("boolean", _)               => "Boolean".right
       case x =>
         ParseError("Unsupported parameter type '$x'", replacement = s"FIXME[$x]").left
     }

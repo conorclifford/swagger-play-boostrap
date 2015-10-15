@@ -9,7 +9,7 @@ object Models {
         |//
         |package $packageName
         |
-        |${definitions.map(generateCaseClass).mkString("\n")}
+        |${definitions.filterNot(_.attributes.isEmpty).map(generateCaseClass).mkString("\n")}
          """.stripMargin
   }
 

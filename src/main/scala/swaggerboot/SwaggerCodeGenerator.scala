@@ -83,10 +83,11 @@ object SwaggerCodeGenerator extends App {
     val modelsDir = new File(appDir, "models")
 
     val projectDir = new File(config.outputDir, "project")
+    val bindersDir = new File(appDir, "binders")
 
     createDirsWithCheck(confDir, controllersDir, delegateTraitsDir, modelsDir)
     if (config.stubFullPlayApp) {
-      createDirsWithCheck(projectDir)
+      createDirsWithCheck(projectDir, bindersDir)
     }
 
     writingToFile(new File(confDir, "routes")) {
@@ -135,6 +136,9 @@ object SwaggerCodeGenerator extends App {
       }
       writingToFile(new File(config.outputDir, "build.sbt")) {
         _.println(codegen.server.BuildSbt.generate(title))
+      }
+      writingToFile(new File(bindersDir, "package.scala")) {
+        _.println(codegen.server.Binders.generate(swagger.containsCsvParams))
       }
     }
 

@@ -13,6 +13,12 @@ object Controller {
       method -> method.delegate.getOrElse(swaggerboot.Delegates.getDefault(controller, method))
     }.toMap
 
+    val injectableParamList = if (config.generateDelegates) {
+      s"@Inject() (${delegateInjectionList(controller)})"
+    } else {
+      ""
+    }
+
     s"""
        |//
        |// This is generated code.
@@ -27,7 +33,7 @@ object Controller {
        |import models._
        |import models.JsonOps._
        |
-       |class ${toScalaName(name)} @Inject() (${delegateInjectionList(controller)}) extends Controller {
+       |class ${toScalaName(name)} $injectableParamList extends Controller {
        |  ${methods.map(method => scalaImpl(method, methodToDelegate(method))).mkString("")}
        |}
      """.stripMargin
