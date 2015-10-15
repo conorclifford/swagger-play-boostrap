@@ -1,5 +1,7 @@
 package swaggerboot
 
+import swaggerboot.codegen.server.ControllerDelegateTraits
+
 sealed trait ParamType
 case object PathParam extends ParamType
 case object QueryParam extends ParamType
@@ -44,7 +46,7 @@ case class Method(routePath: String,
     val fname = bits.last
     val cname = bits.dropRight(1).last
     val pname = bits.dropRight(2).mkString(".")
-    require(pname != codegen.ControllerDelegateTraits.PackageName, "Illegal packagename for delegates")
+    require(pname != ControllerDelegateTraits.PackageName, "Illegal packagename for delegates")
     MethodDelegate(pname, cname, fname, this)
   }
 }

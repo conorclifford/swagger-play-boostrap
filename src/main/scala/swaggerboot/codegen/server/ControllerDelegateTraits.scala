@@ -1,6 +1,7 @@
-package swaggerboot.codegen
+package swaggerboot.codegen.server
 
-import swaggerboot.{MethodDelegate, ControllerDelegate}
+import swaggerboot.codegen._
+import swaggerboot.{ControllerDelegate, MethodDelegate}
 
 object ControllerDelegateTraits {
   val PackageName = "controllers.delegates"

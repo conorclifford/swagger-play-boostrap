@@ -16,7 +16,8 @@ object SwaggerCodeGenerator extends App {
                     genServerCode: Boolean = true,
                     replace: Boolean = false,
                     generatePlay23Code: Boolean = false,
-                    generateDelegates: Boolean = true)
+                    generateDelegates: Boolean = true,
+                    stubFullPlayApp: Boolean = false)
 
   val parser = new scopt.OptionParser[Config]("SwaggerCodeGenerator"){
     opt[File]("api") action { case (x, c) => c.copy(swaggerSpec = x) } required() maxOccurs(1) text("Swagger API specification (JSON or YAML)")
@@ -25,6 +26,7 @@ object SwaggerCodeGenerator extends App {
     opt[Unit]("replace") action { case (_, c) => c.copy(replace = true) } text("specifies to replace existing sources - note currently ONLY AVAILABLE with -client")
     opt[Unit]("play23") action { case (_, c) => c.copy(generatePlay23Code = true) } text("requests the generated code to be generated for play2.3  - note, this is currently ONLY AVAILABLE with -client, and is completely experimental")
     opt[Unit]("nodelegates") action { case (_, c) => c.copy(generateDelegates = false) } text("request the generated server code not have delegates workflow prepared")
+    opt[Unit]("fullplaystub") action { case (_, c) => c.copy(stubFullPlayApp = true) } text("generate a stub for a full play app, including SBT, configuration, etc.")
     checkConfig { c =>
       if (c.genServerCode && c.replace) failure("Cannot replace code in server mode")
       else if (c.genServerCode && c.generatePlay23Code) failure("cannot generate play23 code in server mode")
@@ -59,6 +61,20 @@ object SwaggerCodeGenerator extends App {
       System.err.println(s"WARN - $msg - Replaced actual generated code with '$replacement'")
   }
 
+  def createDirsWithCheck(dirs: File*) = {
+    dirs.map { dir =>
+      (dir, dir.mkdirs())
+    }.find(!_._2).foreach { case (dir, _) =>
+      System.err.println(s"Failed to create directory '$dir'")
+      System.exit(1)
+    }
+  }
+
+  val title = (for {
+    info <- Option(swagger.getInfo)
+    title <- Option(info.getTitle)
+  } yield title).getOrElse("No Info Title Provided")
+
   if (config.genServerCode) {
     val confDir = new File(config.outputDir, "conf")
     val appDir = new File(config.outputDir, "app")
@@ -66,27 +82,27 @@ object SwaggerCodeGenerator extends App {
     val delegateTraitsDir = new File(controllersDir, "delegates")
     val modelsDir = new File(appDir, "models")
 
-    Seq(confDir, controllersDir, delegateTraitsDir, modelsDir).map { dir =>
-      (dir, dir.mkdirs())
-    }.find(!_._2).foreach { case (dir, _) =>
-      System.err.println(s"Failed to create directory '$dir'")
-      System.exit(1)
+    val projectDir = new File(config.outputDir, "project")
+
+    createDirsWithCheck(confDir, controllersDir, delegateTraitsDir, modelsDir)
+    if (config.stubFullPlayApp) {
+      createDirsWithCheck(projectDir)
     }
 
     writingToFile(new File(confDir, "routes")) {
-      _.println(codegen.Routes.generate(swagger.routedControllers))
+      _.println(codegen.server.Routes.generate(swagger.routedControllers))
     }
 
     swagger.controllers.foreach { c =>
       writingToFile(new File(controllersDir, s"${c.name}.scala")) {
-        _.println(codegen.Controller.generate(c))
+        _.println(codegen.server.Controller.generate(c))
       }
     }
 
     if (config.generateDelegates) {
       Delegates.extract(swagger.controllers).foreach { delegate =>
         writingToFile(new File(delegateTraitsDir, s"${delegate.className}.scala")) {
-          _.println(codegen.ControllerDelegateTraits.generate(delegate))
+          _.println(codegen.server.ControllerDelegateTraits.generate(delegate))
         }
       }
     }
@@ -104,25 +120,34 @@ object SwaggerCodeGenerator extends App {
       _.println(codegen.Enums.generate("models", swagger.definitions(), false))
     }
 
-  } else {
-    val title = for {
-      info <- Option(swagger.getInfo)
-      title <- Option(info.getTitle)
-    } yield title
+    if (config.stubFullPlayApp) {
+      writingToFile(new File(confDir, "application.conf")) {
+        _.println(codegen.server.ApplicationConf.generate())
+      }
+      writingToFile(new File(confDir, "logback.xml")) {
+        _.println(codegen.server.LogbackXml.generate())
+      }
+      writingToFile(new File(projectDir, "build.properties")) {
+        _.println(codegen.server.BuildProperties.generate())
+      }
+      writingToFile(new File(projectDir, "plugins.sbt")) {
+        _.println(codegen.server.ProjectPluginsSbt.generate())
+      }
+      writingToFile(new File(config.outputDir, "build.sbt")) {
+        _.println(codegen.server.BuildSbt.generate(title))
+      }
+    }
 
-    val clientPackageName = title.getOrElse("No Info Title Provided Package").replace(".", "").replace(" ", "_").toLowerCase
+  } else {
+
+    val clientPackageName = title.replace(".", "").replace(" ", "_").toLowerCase
     val clientDir = new File(new File(config.outputDir, "clients"), clientPackageName)
 
     if (clientDir.isDirectory && config.replace) {
       FileUtils.deleteDirectory(clientDir)
     }
 
-    Seq(clientDir).map { dir =>
-      (dir, dir.mkdirs())
-    }.find(!_._2).foreach { case (dir, _) if !dir.isDirectory =>
-      System.err.println(s"Failed to create directory '$dir'")
-      System.exit(1)
-    }
+    createDirsWithCheck(clientDir)
 
     val clientModelPackageFqn = s"clients.$clientPackageName"
 

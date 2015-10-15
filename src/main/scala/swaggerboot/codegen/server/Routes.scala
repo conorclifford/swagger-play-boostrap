@@ -1,6 +1,6 @@
-package swaggerboot.codegen
+package swaggerboot.codegen.server
 
-import swaggerboot.{Param, Method, RoutedController}
+import swaggerboot.{Method, Param, RoutedController}
 
 object Routes {
 

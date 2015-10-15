@@ -1,6 +1,5 @@
 package swaggerboot.codegen
 
-import io.swagger.models.Swagger
 import swaggerboot._
 
 object Client {
