@@ -1,9 +1,10 @@
 package swaggerboot.codegen
 
+import swaggerboot.SwaggerCodeGenerator.Config
 import swaggerboot._
 
 object Controller {
-  def generate(controller: Controller): String = {
+  def generate(controller: Controller)(implicit config: Config): String = {
     val name = controller.name
     val methods = controller.methods
 
@@ -33,14 +34,18 @@ object Controller {
 
   private def valName(className: String): String = toScalaName(className.head.toLower +: className.tail)
 
-  private def delegateInjectionList(controller: Controller): String = {
-    val delegates = swaggerboot.Delegates.extract(Seq(controller))
-    delegates.map { delegate =>
-      s"${valName(delegate.className)}: _root_.${ControllerDelegateTraits.PackageName}.${delegate.className}"
-    }.mkString(", ")
+  private def delegateInjectionList(controller: Controller)(implicit config: Config): String = {
+    if (config.generateDelegates) {
+      val delegates = swaggerboot.Delegates.extract(Seq(controller))
+      delegates.map { delegate =>
+        s"${valName(delegate.className)}: _root_.${ControllerDelegateTraits.PackageName}.${delegate.className}"
+      }.mkString(", ")
+    } else {
+      ""
+    }
   }
 
-  private def scalaImpl(method: Method, delegate: MethodDelegate): String = {
+  private def scalaImpl(method: Method, delegate: MethodDelegate)(implicit config: Config): String = {
     val name = method.name
     val params = method.params
     val headerParams = method.headerParams
@@ -48,10 +53,16 @@ object Controller {
     // FIXME use content-type specific parsing!!
     val parsing = method.body.fold("")(_ => "(parse.tolerantJson)")
 
+    val dispatchLogic = if (config.generateDelegates) {
+      s"${valName(delegate.className)}.${toScalaName(name)}(${paramNameList(params)})"
+    } else {
+      s"??? // FIXME"
+    }
+
     s"""
         |  def ${toScalaName(name)}(${paramSigs(params)}) = Action.async$parsing { implicit request =>
         |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// header: ", "\n    // header: ", "\n") else ""}
-        |    ${valName(delegate.className)}.${toScalaName(name)}(${paramNameList(params)})
+        |    $dispatchLogic
         |  }
    """.stripMargin
   }
