@@ -1,11 +1,12 @@
 package swaggerboot.codegen.server
 
+import swaggerboot.SwaggerCodeGenerator.Config
 import swaggerboot.{Method, Param, RoutedController}
 
 object Routes {
 
-  def generate(controllers: Seq[RoutedController]): String = {
-    controllers.sortBy(_.path).map { routed =>
+  def generate(controllers: Seq[RoutedController])(implicit config: Config): String = {
+    val generatedRoutes = controllers.sortBy(_.path).map { routed =>
       val routesFileEntries: Seq[String] = {
         val controller = routed.controller
         controller.methods.map { method =>
@@ -14,6 +15,21 @@ object Routes {
       }
       routesFileEntries.mkString("\n")
     }.mkString("\n\n")
+
+    val healthcheck = if (config.withHealthCheck) {
+      s"GET   /health   controllers.HealthCheck.ping() "
+    } else {
+      ""
+    }
+
+    s"""
+       |$generatedRoutes
+       |
+       |$healthcheck
+       |
+       |GET     /assets/*file   controllers.Assets.at(path="/public", file)
+       |GET     /ui  controllers.Default.redirect(to="/assets/lib/swagger-ui/index.html?/url=/assets/swagger.json")
+     """.stripMargin
   }
 
   private def routeFileEntry(method: Method, path: String, controllerName: String) = {

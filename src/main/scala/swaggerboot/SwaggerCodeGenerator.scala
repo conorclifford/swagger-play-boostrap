@@ -5,9 +5,13 @@ import java.io.{File, PrintWriter}
 import io.swagger.models.Swagger
 import io.swagger.models.auth.OAuth2Definition
 import io.swagger.parser.SwaggerParser
+import io.swagger.util.Json
 import org.apache.commons.io.FileUtils
+import org.yaml.snakeyaml.Yaml
 
 import swaggerops._
+
+import scala.io.Source
 
 object SwaggerCodeGenerator extends App {
   val IllegalFile = new File("illegal")
@@ -17,7 +21,8 @@ object SwaggerCodeGenerator extends App {
                     replace: Boolean = false,
                     generatePlay23Code: Boolean = false,
                     generateDelegates: Boolean = true,
-                    stubFullPlayApp: Boolean = false)
+                    stubFullPlayApp: Boolean = false,
+                    withHealthCheck: Boolean = false)
 
   val parser = new scopt.OptionParser[Config]("SwaggerCodeGenerator"){
     opt[File]("api") action { case (x, c) => c.copy(swaggerSpec = x) } required() maxOccurs(1) text("Swagger API specification (JSON or YAML)")
@@ -27,12 +32,14 @@ object SwaggerCodeGenerator extends App {
     opt[Unit]("play23") action { case (_, c) => c.copy(generatePlay23Code = true) } text("requests the generated code to be generated for play2.3  - note, this is currently ONLY AVAILABLE with -client, and is completely experimental")
     opt[Unit]("nodelegates") action { case (_, c) => c.copy(generateDelegates = false) } text("request the generated server code not have delegates workflow prepared")
     opt[Unit]("fullplaystub") action { case (_, c) => c.copy(stubFullPlayApp = true) } text("generate a stub for a full play app, including SBT, configuration, etc.")
+    opt[Unit]("healthcheck") action { case (_, c) => c.copy(withHealthCheck = true) } text("Include simple healthcheck support (server only)")
     checkConfig { c =>
       if (c.genServerCode && c.replace) failure("Cannot replace code in server mode")
       else if (c.genServerCode && c.generatePlay23Code) failure("cannot generate play23 code in server mode")
       else if (c.swaggerSpec == IllegalFile || !c.swaggerSpec.isFile || !c.swaggerSpec.canRead) failure("Swagger API must be specified as real/readable file")
       else if (c.outputDir == IllegalFile) failure("output directory must be specified")
       else if (!c.replace && c.outputDir.exists()) failure("specified output already exists")
+      else if (!c.genServerCode && c.withHealthCheck) failure("Cannot request healthcheck generation for client code")
       else success
     }
   }
@@ -84,10 +91,11 @@ object SwaggerCodeGenerator extends App {
 
     val projectDir = new File(config.outputDir, "project")
     val bindersDir = new File(appDir, "binders")
+    val publicDir = new File(config.outputDir, "public")
 
     createDirsWithCheck(confDir, controllersDir, delegateTraitsDir, modelsDir)
     if (config.stubFullPlayApp) {
-      createDirsWithCheck(projectDir, bindersDir)
+      createDirsWithCheck(projectDir, bindersDir, publicDir)
     }
 
     writingToFile(new File(confDir, "routes")) {
@@ -97,6 +105,11 @@ object SwaggerCodeGenerator extends App {
     swagger.controllers.foreach { c =>
       writingToFile(new File(controllersDir, s"${c.name}.scala")) {
         _.println(codegen.server.Controller.generate(c))
+      }
+    }
+    if (config.withHealthCheck) {
+      writingToFile(new File(controllersDir, "Healthcheck.scala")) {
+        _.println(codegen.server.HealthcheckController.generate())
       }
     }
 
@@ -140,6 +153,16 @@ object SwaggerCodeGenerator extends App {
       writingToFile(new File(bindersDir, "package.scala")) {
         _.println(codegen.server.Binders.generate(swagger.containsCsvParams))
       }
+
+      writingToFile(new File(publicDir, "swagger.json")) {
+        val specSource = Source.fromFile(config.swaggerSpec).mkString
+        val json = if (config.swaggerSpec.getName.endsWith(".json")) {
+          specSource
+        } else {
+          yamlToJson(specSource)
+        }
+        _.println(json)
+      }
     }
 
   } else {
@@ -180,6 +203,12 @@ object SwaggerCodeGenerator extends App {
     } finally {
       writer.close()
     }
+  }
+
+  private def yamlToJson(yamlSource: String): String = {
+    import scala.collection.JavaConverters._
+    val yaml = (new Yaml).load(yamlSource)
+    Json.pretty(yaml)
   }
 }
 
