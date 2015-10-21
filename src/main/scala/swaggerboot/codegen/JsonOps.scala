@@ -124,30 +124,38 @@ object JsonOps {
     val attributes = definition.attributes
     val name = definition.name
     val scalaName = toScalaName(name)
+    val singleAttribute = attributes.size == 1
+
+    def buildImplicits(namePrefix: String, forceOptional: Boolean) = {
+      if (attributes.size == 1) {
+        val attr = attributes.head
+        s"""
+           |  implicit $playJsonDeclType reads$namePrefix$name: Reads[$namePrefix$scalaName] =
+           |    ${generateRead(attr, forceOptional = forceOptional)}.map($namePrefix$scalaName(_))
+           |
+           |  implicit $playJsonDeclType writes$namePrefix$name: Writes[$namePrefix$scalaName] =
+           |    ${generateWrite(attr, forceOptional = forceOptional)}.contramap(_.${attr.name})
+         """.stripMargin
+        } else {
+        s"""
+           |  implicit $playJsonDeclType read$namePrefix$name: Reads[$namePrefix$scalaName] = (
+           |    ${attributes.map(generateRead(_, forceOptional = forceOptional)).mkString(" and\n    ")}
+           |  )($namePrefix$scalaName)
+           |
+           |  implicit $playJsonDeclType writes$namePrefix$name: Writes[$namePrefix$scalaName] = (
+           |    ${attributes.map(generateWrite(_, forceOptional = forceOptional)).mkString(" and\n    ")}
+           |  )(unlift($namePrefix$scalaName.unapply))
+         """.stripMargin
+      }
+    }
 
     val scalaPatchJsonImpl = if (!definition.supportPatch) {
       ""
     } else {
       // Note, Patch object have every attribute as Optional...
-      s"""
-         |  implicit $playJsonDeclType readsPatch$name: Reads[Patch$scalaName] = (
-         |    ${attributes.map(generateRead(_, forceOptional = true)).mkString(" and\n    ")}
-         |  )(Patch$scalaName)
-         |
-         |  implicit $playJsonDeclType writesPatch$name: Writes[Patch$scalaName] = (
-         |    ${attributes.map(generateWrite(_, forceOptional = true)).mkString(" and\n    ")}
-         |  )(unlift(Patch$scalaName.unapply))
-     """.stripMargin
+      buildImplicits("Patch", true)
     }
 
-    s"""
-       |  implicit $playJsonDeclType reads$name: Reads[$scalaName] = (
-       |    ${attributes.map(generateRead(_)).mkString(" and\n    ")}
-       |  )($scalaName)
-       |
-       |  implicit $playJsonDeclType writes$name: Writes[$scalaName] = (
-       |    ${attributes.map(generateWrite(_)).mkString(" and\n    ")}
-       |  )(unlift($scalaName.unapply))${scalaPatchJsonImpl}
-     """.stripMargin
+    buildImplicits("", false)
   }
 }
