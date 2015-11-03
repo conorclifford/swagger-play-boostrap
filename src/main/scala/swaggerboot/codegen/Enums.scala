@@ -49,7 +49,7 @@ object Enums {
             }
        |  }
        |
-       |  def unapply(op: $traitName): String = op match {
+       |  def contrapply(op: $traitName): String = op match {
        |    ${modeledEnum.values.map(unapplyCaseEntry).mkString("\n    ")}
        |    $unknownValueHandlerUnapply
        |  }
