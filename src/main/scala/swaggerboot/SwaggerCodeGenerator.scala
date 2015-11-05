@@ -121,12 +121,15 @@ object SwaggerCodeGenerator extends App {
       }
     }
 
+    // Generate warnings on cycles
+    swagger.definitions(logCyclicDefinitionWarning)
+
     writingToFile(new File(modelsDir, "Models.scala")) {
       _.println(codegen.Models.generate("models", swagger.definitions()))
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate("models", swagger.definitions(logCyclicDefinitionWarning)))
+      _.println(codegen.JsonOps.generate("models", swagger.definitions()))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
@@ -178,12 +181,15 @@ object SwaggerCodeGenerator extends App {
 
     val clientModelPackageFqn = s"clients.$clientPackageName"
 
+    // Generate warnings on cycles.
+    swagger.definitions(logCyclicDefinitionWarning)
+
     writingToFile(new File(clientDir, "Models.scala")) {
       _.println(codegen.Models.generate(clientModelPackageFqn, swagger.definitions()))
     }
 
     writingToFile(new File(clientDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate(clientModelPackageFqn, swagger.definitions(logCyclicDefinitionWarning)))
+      _.println(codegen.JsonOps.generate(clientModelPackageFqn, swagger.definitions()))
     }
 
     writingToFile(new File(clientDir, "Client.scala")) {

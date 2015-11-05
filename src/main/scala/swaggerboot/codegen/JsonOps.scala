@@ -156,6 +156,9 @@ object JsonOps {
       buildImplicits("Patch", true)
     }
 
-    buildImplicits("", false)
+    s"""
+       |${buildImplicits("", false)}
+       |$scalaPatchJsonImpl
+     """.stripMargin
   }
 }
