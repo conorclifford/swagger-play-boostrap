@@ -30,15 +30,18 @@ object JsonOps {
     def generateRead(attribute: ModelAttribute, forceOptional: Boolean = false): String = {
       val nullable = !attribute.required || forceOptional
       val lazily = definition.cyclicReferences.exists(_.contains(attribute.scalaType))
+      val lazySeq = definition.cyclicReferences.exists(_.exists(r => s"Seq[$r]" == attribute.scalaType))
       val jodaDate = "org.joda.time.DateTime" == attribute.scalaType
       val isEnum = attribute.modeledEnum.nonEmpty
 
-      (nullable, lazily, jodaDate, isEnum) match {
+      (nullable, lazily || lazySeq, jodaDate, isEnum) match {
         case (false, false, false, false) => generatePlainRead(attribute)
         case (true,  false, false, false) => generatePlainReadNullable(attribute)
         // Cannot have enum and lazy in same case.
-        case (false, true,  false, _) => generateLazyRead(attribute)
-        case (true,  true,  false, _) => generateLazyReadNullable(attribute)
+        case (false, true,  false, _) if !lazySeq => generateLazyRead(attribute)
+        case (true,  true,  false, _) if !lazySeq => generateLazyReadNullable(attribute)
+        case (false, true,  false, _) if lazySeq => generateLazySeqRead(attribute.scalaType.drop(4).dropRight(1), attribute)
+        case (true,  true,  false, _) if lazySeq => generateLazySeqReadNullable(attribute.scalaType.drop(4).dropRight(1), attribute)
         // cannot have JodaDate and either lazy or enum in same case
         case (false, _, true, _ ) => generatePlainReadJodaDate(attribute)
         case (true,  _, true, _ ) => generatePlainReadNullableJodaDate(attribute)
@@ -52,6 +55,9 @@ object JsonOps {
 
     def generateLazyRead(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyRead(reads${attribute.scalaType})"""
     def generateLazyReadNullable(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyReadNullable(reads${attribute.scalaType})"""
+
+    def generateLazySeqRead(name: String, attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyRead(Reads.seq[$name](reads${name}))"""
+    def generateLazySeqReadNullable(name: String, attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyReadNullable(Reads.seq[$name](reads${name}))"""
 
     def generatePlainReadJodaDate(attribute: ModelAttribute): String = {
       s"""(__ \\ "${attribute.name}").read[String].map(new org.joda.time.DateTime(_))"""
@@ -75,14 +81,18 @@ object JsonOps {
     def generateWrite(attribute: ModelAttribute, forceOptional: Boolean = false): String = {
       val nullable = !attribute.required || forceOptional
       val lazily = definition.cyclicReferences.exists(_.contains(attribute.scalaType))
+      val lazySeq = definition.cyclicReferences.exists(_.exists(r => s"Seq[$r]" == attribute.scalaType))
+
       val jodaDate = "org.joda.time.DateTime" == attribute.scalaType
       val isEnum = attribute.modeledEnum.nonEmpty
 
-      (nullable, lazily, jodaDate, isEnum) match {
+      (nullable, lazily || lazySeq, jodaDate, isEnum) match {
         case (false, false, false, false) => generatePlainWrite(attribute)
         case (true,  false, false, false) => generatePlainWriteNullable(attribute)
-        case (false, true,  false, _) => generateLazyWrite(attribute)
-        case (true,  true,  false, _) => generateLazyWriteNullable(attribute)
+        case (false, true,  false, _) if !lazySeq => generateLazyWrite(attribute)
+        case (true,  true,  false, _) if !lazySeq => generateLazyWriteNullable(attribute)
+        case (false, true,  false, _) if lazySeq => generateLazySeqWrite(attribute.scalaType.drop(4).dropRight(1), attribute) // hahahaha (facepalm)
+        case (true,  true,  false, _) if lazySeq => generateLazySeqWriteNullable(attribute.scalaType.drop(4).dropRight(1), attribute) // FIXME fix the Param data model to get rid if this drop().dropRight() mess...
         case (false, _, true, _ ) => generatePlainWriteJodaDate(attribute)
         case (true,  _, true, _ ) => generatePlainWriteNullableJodaDate(attribute)
         case (false, _, _, true) => generateWriteEnum(attribute)
@@ -94,6 +104,9 @@ object JsonOps {
     def generatePlainWriteNullable(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").writeNullable[${attribute.scalaType}]"""
     def generateLazyWrite(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWrite(writes${attribute.scalaType})"""
     def generateLazyWriteNullable(attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWriteNullable(writes${attribute.scalaType})"""
+
+    def generateLazySeqWrite(name: String, attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWrite(Writes.seq[$name](writes$name))"""
+    def generateLazySeqWriteNullable(name: String, attribute: ModelAttribute): String = s"""(__ \\ "${attribute.name}").lazyWriteNullable(Writes.seq[$name](writes$name))"""
 
     def generatePlainWriteJodaDate(attribute: ModelAttribute): String = {
       // Assume date-time otherwise
