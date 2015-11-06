@@ -113,6 +113,11 @@ object Client {
 
     def paramName(param: Param) = param.name.toLowerCase
 
+    def encodedParam(param: Param) = {
+      if (param.baseType startsWith "Seq[") s"""${paramName(param)}.mkString(",")"""
+      else paramName(param)
+    }
+
     def toHeader(param: Param) = {
       if (param.required) {
         s"""Some("${param.name}" -> ${paramName(param)}.toString)"""
@@ -139,7 +144,7 @@ object Client {
 
     val path = method.params.filter(_.paramType == PathParam).foldLeft(method.routePath) {
       case (rp, param) =>
-        rp.replace(s":${param.name}", s"""$${play.utils.UriEncoding.encodePathSegment(${paramName(param)}, "UTF-8")}""")
+        rp.replace(s":${param.name}", s"""$${play.utils.UriEncoding.encodePathSegment(${encodedParam(param)}, "UTF-8")}""")
     }
 
     val withQueryString = if (method.params.exists(_.paramType == QueryParam)) {

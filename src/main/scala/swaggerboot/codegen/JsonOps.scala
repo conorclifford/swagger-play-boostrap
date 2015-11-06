@@ -21,7 +21,7 @@ object JsonOps {
 
   //
   // Json reads/writes generated in semi-verbose manner here intentionally as this gives direct visibility into what is
-  // being genated/serialised, and also allows for easier manipulation of generated code (for whatever reason, even if this
+  // being generated/serialised, and also allows for easier manipulation of generated code (for whatever reason, even if this
   // should really not be necessary...
   //
 
