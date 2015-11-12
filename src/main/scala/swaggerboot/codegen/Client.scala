@@ -82,7 +82,7 @@ object Client {
 
     def paramSig(param: Param) = {
       val typeName = if (param.required) param.baseType else s"Option[${param.baseType}]"
-      s"${param.name.toLowerCase}: $typeName"
+      s"${param.scalaName}: $typeName"
     }
 
     val contentTypeParam = if (includeContentType(method)) {
@@ -111,7 +111,7 @@ object Client {
 
   def clientMethod(method: Method, generatePlay23Code: Boolean): String = {
 
-    def paramName(param: Param) = param.name.toLowerCase
+    def paramName(param: Param) = param.scalaName
 
     def encodedParam(param: Param) = {
       if (param.baseType startsWith "Seq[") s"""${paramName(param)}.mkString(",")"""
