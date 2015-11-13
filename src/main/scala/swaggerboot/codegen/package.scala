@@ -10,12 +10,16 @@ package object codegen {
   )
 
   def toScalaName(n: String) = {
-    val camel = camelOf(n.replace("-", "_"))
     if (ReservedNames contains n) {
-      s"`$camel`"
+      s"`$n`"
     } else {
-      camel
+      n
     }
+  }
+
+  def toCamelScalaName(n: String) = {
+    val transformed = toScalaName(camelOf(n.replace("-", "_")))
+    transformed.take(1).toLowerCase ++ transformed.tail
   }
 
   def camelOf(name: String): String = {

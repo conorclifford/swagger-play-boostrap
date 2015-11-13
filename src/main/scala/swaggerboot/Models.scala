@@ -8,7 +8,7 @@ case object QueryParam extends ParamType
 case object HeaderParam extends ParamType
 
 case class Param(name: String, baseType: String, required: Boolean, paramType: ParamType, defaultValue: Option[String]) {
-  lazy val scalaName = codegen.toScalaName(name)
+  lazy val scalaName = codegen.toCamelScalaName(name)
 }
 
 case class Body(typeName: String)
