@@ -18,7 +18,7 @@ Generation of code routes, controllers, `case class`es for all Definitions, with
 
 ```
 $ sbt assembly
-$ scala ~/code/github/swagger-play-boostrap/target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar 
+$ scala ~/code/github/swagger-play-boostrap/target/scala-2.11/swagger-play-boostrap-assembly-0.1-SNAPSHOT.jar
 Error: Missing option --api
 Error: Missing option --output-directory
 Error: Swagger API must be specified as real/readable file
@@ -95,7 +95,7 @@ val wsClient = {
 	new play.api.libs.ws.ning.NingWSClient(builder.build())
 }
 
-val client = new Client("http://localhost:9000", wsClient = wsClient)
+val client = new ClientImpl("http://localhost:9000", wsClient = wsClient)
 ```
 
 ## Notes

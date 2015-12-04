@@ -115,7 +115,7 @@ object Client {
 
     def encodedParam(param: Param) = {
       if (param.baseType startsWith "Seq[") s"""${paramName(param)}.mkString(",")"""
-      else paramName(param)
+      else s"${paramName(param)}.toString"
     }
 
     def toHeader(param: Param) = {
