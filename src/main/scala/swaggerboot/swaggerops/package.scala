@@ -104,39 +104,31 @@ package object swaggerops {
     def swaggerType(): SwaggerType = SwaggerType(property.getType, Option(property.getFormat))
 
     def scalaType(parentName: String, propName: String): ParseError \/ (String, Boolean, Option[String]) = {
-      val rawType: ParseError \/ (String, Option[String]) = property.getType match {
-        case "integer" if "int32" == property.getFormat =>
-          ("Int", None).right
-        case "integer" if "int64" == Option(property.getFormat).getOrElse("int64") =>
-          ("Long", None).right
-        case "float" =>
-          ("Float", None).right
-        case "double" =>
-          ("Double", None).right
-        case "string" if "byte" == property.getFormat =>
-          ParseError(s"Unsupported property type 'string, format=byte'").left
-        case "string" if "binary" == property.getFormat =>
-          ParseError(s"Unsupported property type 'string, format=binary'").left
-        case "string" if "date" == property.getFormat =>
-          ("org.joda.time.DateTime", None).right
-        case "string" if "date-time" == property.getFormat =>
-          ("org.joda.time.DateTime", None).right
-        case "string" =>
-          ("String", None).right
-        case "boolean" => ("Boolean", None).right
-        case "ref" => getType(property.asInstanceOf[RefProperty])
-        case "array" => {
+      val rawType: ParseError \/ (String, Option[String]) = (property.getType, Option(property.getFormat)) match {
+        case ("integer", Some("int32"))                             => ("Int", None).right
+        case ("integer", Some("int64"))                             => ("Long", None).right
+        case ("integer", None)                                      => ("Long", None).right
+        case ("number", Some("float"))                              => ("Float", None).right
+        case ("number", Some("double"))                             => ("Double", None).right
+        case ("number", None)                                       => ("Double", None).right
+        case ("string", Some("byte"))                               => ParseError(s"Unsupported property type 'string, format=byte'").left
+        case ("string", Some("binary"))                             => ParseError(s"Unsupported property type 'string, format=binary'").left
+        case ("string", Some("date"))                               => ("org.joda.time.DateTime", None).right
+        case ("string", Some("date-time"))                          => ("org.joda.time.DateTime", None).right
+        case ("string", _)                                          => ("String", None).right
+        case ("boolean", _)                                         => ("Boolean", None).right
+        case ("ref", _)                                             => getType(property.asInstanceOf[RefProperty])
+        case ("array", _)                                           => {
           getType(parentName, propName, property.asInstanceOf[ArrayProperty]).fold(
             l = error => error.copy(replacement = s"Seq[${error.replacement}]", required = property.getRequired).left,
             r = v => (s"Seq[${v._1}]", v._2).right
           )
         }
-        case "object" if property.isInstanceOf[ObjectProperty] => getType(Definitions.syntheticModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
-        case "object" if property.isInstanceOf[MapProperty] => getType(parentName, propName, property.asInstanceOf[MapProperty]) // FIXME are these parent/prop names correct here?
+        case ("object", _) if property.isInstanceOf[ObjectProperty] => getType(Definitions.syntheticModelName(parentName, propName), property.asInstanceOf[ObjectProperty])
+        case ("object", _) if property.isInstanceOf[MapProperty]    => getType(parentName, propName, property.asInstanceOf[MapProperty]) // FIXME are these parent/prop names correct here?
         case x =>
           ParseError(s"Unsupported property type '$x'").left
       }
-
       rawType.map { case (n, rn) => (n, property.getRequired, rn) }
     }
 
