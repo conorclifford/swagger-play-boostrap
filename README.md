@@ -34,8 +34,8 @@ Usage: SwaggerCodeGenerator [options]
         specifies to replace existing sources - note currently ONLY AVAILABLE with -client
   --play23
         requests the generated code to be generated for play2.3  - note, this is currently ONLY AVAILABLE with -client, and is completely experimental
-  --nodelegates
-        request the generated server code not have delegates workflow prepared
+  --withdelegates
+        request the generated server code use experimental 'delegate' workflow, where service author must implement 'logic.*' classes, etc.
   --fullplaystub
         generate a stub for a full play app, including SBT, configuration, etc.
   --healthcheck
