@@ -19,8 +19,8 @@ object Client {
         |import Scalaz._
         |
         |object Result {
-        |  case class Success[B](responseCode: Int, message: Option[String], body: Option[B] = None)
-        |  case class Error[B](responseCode: Int, message: Option[String] = None, body: Option[B] = None)
+        |  case class Success[B](responseCode: Int, message: Option[String], body: Option[B] = None, rawResponse: play.api.libs.ws.WSResponse)
+        |  case class Error[B](responseCode: Int, message: Option[String] = None, body: Option[B] = None, rawResponse: play.api.libs.ws.WSResponse)
         |}
         |
         |case class RequestTimeout(duration: scala.concurrent.duration.Duration)
@@ -195,29 +195,29 @@ object Client {
             method.returnValues.toSeq.sortBy(_.rcode).map {
               case ReturnValue(rcode, message, None) if rcode < 400 =>
                 s"""    case resp if resp.status == $rcode =>
-                   |      \\/-(Result.Success(resp.status, message = ${codify(message)}))
+                   |      \\/-(Result.Success(resp.status, message = ${codify(message)}, rawResponse = resp))
                    |""".stripMargin
               case ReturnValue(rcode, message, Some(ReturnType(retName, _))) if rcode < 400 =>
                 s"""    case resp if resp.status == $rcode =>
                    |      resp.json.validate[$retName].fold(
-                   |        invalid = errors => -\\/(Result.Error(resp.status, Some("Invalid body for '$retName': " + errors.mkString(", ")))),
-                   |        valid = b => \\/-(Result.Success(resp.status, message = ${codify(message)}, Some(b)))
+                   |        invalid = errors => -\\/(Result.Error(resp.status, Some("Invalid body for '$retName': " + errors.mkString(", ")), rawResponse = resp)),
+                   |        valid = b => \\/-(Result.Success(resp.status, message = ${codify(message)}, Some(b), rawResponse = resp))
                    |      )
                    |""".stripMargin
               case ReturnValue(rcode, message, None) if rcode > 399 =>
                 s"""    case resp if resp.status == $rcode =>
-                   |      -\\/(Result.Error(resp.status, message = ${codify(message)}))
+                   |      -\\/(Result.Error(resp.status, message = ${codify(message)}, rawResponse = resp))
                    |""".stripMargin
               case ReturnValue(rcode, message, Some(ReturnType(retName, _))) if rcode > 399 =>
                 s"""    case resp if resp.status == $rcode =>
                    |      -\\/(resp.json.validate[$retName].fold(
-                   |        invalid = errors => Result.Error(resp.status, Some("Invalid body for error body '$retName': " + errors.mkString(", "))),
-                   |        valid = b => Result.Error(resp.status, message = ${codify(message)}, body = Some(b))
+                   |        invalid = errors => Result.Error(resp.status, Some("Invalid body for error body '$retName': " + errors.mkString(", ")), rawResponse = resp),
+                   |        valid = b => Result.Error(resp.status, message = ${codify(message)}, body = Some(b), rawResponse = resp)
                    |      ))
                    |""".stripMargin
              }.mkString("")
             }    case resp =>
-       |      -\\/(Result.Error(resp.status, message = Some("Unexpected response code")))
+       |      -\\/(Result.Error(resp.status, message = Some("Unexpected response code"), rawResponse = resp))
        |  }
        |}
      """.stripMargin
