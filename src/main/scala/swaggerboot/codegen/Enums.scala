@@ -23,10 +23,10 @@ object Enums {
     def instanceCaseObject(name: String) = s"""case object ${munge(name)} extends $traitName { override val name = "$name" }"""
     val unknownValueDefinitionApply = if (allowUnknown) s"""case class UnknownValue(value: String) extends $traitName { override val name = s"UnknownValue($$value)" }""" else ""
 
-    def applyCaseEntry(name: String) = s"""case "$name" => ${munge(name)}"""
+    def applyCaseEntry(name: String) = s"""case ${munge(name)}.name => ${munge(name)}"""
 
-    def unapplyCaseEntry(name: String) = s"""case ${munge(name)} => "$name""""
-    val unknownValueHandlerUnapply = if (allowUnknown) s"""case UnknownValue(_) => throw new IllegalArgumentException("Cannot serialise unknown values for enums")""" else ""
+    def contrapplyCaseEntry(name: String) = s"""case ${munge(name)} => "$name""""
+    val unknownValueHandlerContrapply = if (allowUnknown) s"""case UnknownValue(_) => throw new IllegalArgumentException("Cannot serialise unknown values for enums")""" else ""
 
     s"""
        |object ${wrappingObjectName(definitionName, propertyName)} {
@@ -49,10 +49,7 @@ object Enums {
             }
        |  }
        |
-       |  def contrapply(op: $traitName): String = op match {
-       |    ${modeledEnum.values.map(unapplyCaseEntry).mkString("\n    ")}
-       |    $unknownValueHandlerUnapply
-       |  }
+       |  def contrapply(op: $traitName): String = op.name
        |}
      """.stripMargin
   }
