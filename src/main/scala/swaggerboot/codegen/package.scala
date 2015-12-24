@@ -18,8 +18,8 @@ package object codegen {
   }
 
   def toCamelScalaName(n: String) = {
-    val transformed = toScalaName(camelOf(n.replace("-", "_")))
-    transformed.take(1).toLowerCase ++ transformed.tail
+    val transformed = camelOf(n.replace("-", "_"))
+    toScalaName(transformed.take(1).toLowerCase ++ transformed.tail)
   }
 
   def camelOf(name: String): String = {
