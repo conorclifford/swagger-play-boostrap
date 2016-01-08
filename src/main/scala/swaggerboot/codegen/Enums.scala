@@ -13,6 +13,9 @@ object Enums {
 
     s"""package $packageName
        |
+       |import scalaz._
+       |import Scalaz._
+       |
        |${enumImpls.mkString("\n")}
      """.stripMargin
   }
@@ -23,10 +26,7 @@ object Enums {
     def instanceCaseObject(name: String) = s"""case object ${munge(name)} extends $traitName { override val name = "$name" }"""
     val unknownValueDefinitionApply = if (allowUnknown) s"""case class UnknownValue(value: String) extends $traitName { override val name = s"UnknownValue($$value)" }""" else ""
 
-    def applyCaseEntry(name: String) = s"""case ${munge(name)}.name => ${munge(name)}"""
-
-    def contrapplyCaseEntry(name: String) = s"""case ${munge(name)} => "$name""""
-    val unknownValueHandlerContrapply = if (allowUnknown) s"""case UnknownValue(_) => throw new IllegalArgumentException("Cannot serialise unknown values for enums")""" else ""
+    def applyCaseEntry(name: String) = s"""case ${munge(name)}.name => ${munge(name)}.right"""
 
     s"""
        |object ${wrappingObjectName(definitionName, propertyName)} {
@@ -38,18 +38,15 @@ object Enums {
        |  ${modeledEnum.values.map(instanceCaseObject).mkString("\n  ")}
        |  $unknownValueDefinitionApply
        |
-       |  def apply(name: String): $traitName = name match {
+       |  def safeApply(name: String): String \\/ $traitName = name match {
        |    ${modeledEnum.values.map(applyCaseEntry).mkString("\n    ")}
-       |    case x => ${
-              if (allowUnknown) {
-                "UnknownValue(x)"
-              } else {
-                s"""throw new IllegalArgumentException(s"Unknown value '$$x' for '$propertyName' enum")"""
-              }
-            }
+       |    case _ => s"Unknown value '$$name' for '$propertyName' enum".left
        |  }
        |
-       |  def contrapply(op: $traitName): String = op.name
+       |  def apply(name: String): $traitName = safeApply(name) match {
+       |    case -\\/(e) => throw new IllegalArgumentException(e)
+       |    case \\/-(status) => status
+       |  }
        |}
      """.stripMargin
   }

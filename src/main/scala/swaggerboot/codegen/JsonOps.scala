@@ -124,13 +124,13 @@ object JsonOps {
     def generateWriteEnum(attribute: ModelAttribute): String = {
       // Get is assumed to be safe in this case...
       val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").write[String].contramap[${Enums.fqn(definition.name, attribute.name)}](${Enums.wrappingObjectName(definition.name, attribute.name)}.contrapply)"""
+      s"""(__ \\ "${attribute.name}").write[String].contramap[${Enums.fqn(definition.name, attribute.name)}](_.name)"""
     }
 
     def generateWriteNullableEnum(attribute: ModelAttribute): String = {
       // Get is assumed to be safe in this case...
       val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[${Enums.fqn(definition.name, attribute.name)}]](_.map(${Enums.wrappingObjectName(definition.name, attribute.name)}.contrapply))"""
+      s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[${Enums.fqn(definition.name, attribute.name)}]](_.map(_.name))"""
     }
 
     val playJsonDeclType = if (definition.cyclicReferences.isEmpty) "val" else "def"
