@@ -18,13 +18,13 @@ object Models {
 
     def attributeLine(attr: ModelAttribute): String = attr match {
       case ModelAttribute(name, _, scalaType, false, _, None) =>
-        s"${toScalaName(name)}: Option[$scalaType] = None"
+        s"${toCamelScalaName(name)}: Option[$scalaType] = None"
       case ModelAttribute(name, _, scalaType, true, _, None)  =>
-        s"${toScalaName(name)}: $scalaType"
+        s"${toCamelScalaName(name)}: $scalaType"
       case ModelAttribute(name, _, scalaType, false, _, Some(enumValue)) =>
-        s"${toScalaName(name)}: Option[${Enums.fqn(definition.name, attr.name)}] = None"
+        s"${toCamelScalaName(name)}: Option[${Enums.fqn(definition.name, attr.name)}] = None"
       case ModelAttribute(name, _, scalaType, true, _, Some(enumValue)) =>
-        s"${toScalaName(name)}: ${Enums.fqn(definition.name, attr.name)}"
+        s"${toCamelScalaName(name)}: ${Enums.fqn(definition.name, attr.name)}"
     }
 
     val scalaPatchClassImpl = if (!definition.supportPatch) {
