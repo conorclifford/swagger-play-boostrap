@@ -19,10 +19,12 @@ package object codegen {
 
   def toCamelScalaName(n: String) = {
     val transformed = camelOf(n.replace("-", "_"))
-    toScalaName(transformed.take(1).toLowerCase ++ transformed.tail)
+    toScalaName(lowerFirst(transformed))
   }
 
   def camelOf(name: String): String = {
     name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
   }
+
+  def lowerFirst(str: String): String = str.take(1).toLowerCase ++ str.tail
 }

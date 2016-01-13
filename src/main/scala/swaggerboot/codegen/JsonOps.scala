@@ -10,13 +10,36 @@ object JsonOps {
           |
           |package $packageName
           |
+          |import play.api.data.validation.ValidationError
           |import play.api.libs.json._
           |import play.api.libs.functional.syntax._
+          |import scalaz._
           |
           |object JsonOps {
-          |  ${definitions.filterNot(_.attributes.isEmpty).map(playJsonImpl).mkString("  \n")}
+          |  ${Enums.enumObjectNames(definitions).map(enumFormatImplicit).mkString("\n  ")}
+          |
+          |  ${definitions.filterNot(_.attributes.isEmpty).map(playJsonImpl).mkString("\n")}
+          |
+          |  private def createEnumFormat[T <: NamedEnum](fn: String => EnumError \\/ T): Format[T] = {
+          |    new Format[T] {
+          |      override def reads(json: JsValue): JsResult[T] = {
+          |        json.validate[String].flatMap { x =>
+          |          fn(x).fold(
+          |            error => JsError(Seq(JsPath() -> Seq(ValidationError(error.message)))),
+          |            value => JsSuccess(value)
+          |          )
+          |        }
+          |      }
+          |
+          |      override def writes(o: T): JsValue = JsString(o.name)
+          |    }
+          |  }
           |}
        """.stripMargin
+  }
+
+  private def enumFormatImplicit(enumObjectName: String): String = {
+    s"implicit val ${lowerFirst(enumObjectName)}Format = createEnumFormat($enumObjectName.apply)"
   }
 
   //
@@ -67,15 +90,11 @@ object JsonOps {
     }
 
     def generateReadEnum(attribute: ModelAttribute): String = {
-      // Get is assumed to be safe in this case...
-      val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").read[String].map(${Enums.wrappingObjectName(definition.name, attribute.name)}.apply)"""
+      s"""(__ \\ "${attribute.name}").read[${Enums.fqn(definition.name, attribute.name)}]"""
     }
 
     def generateReadNullableEnum(attribute: ModelAttribute): String = {
-      // Get is assumed to be safe in this case...
-      val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").readNullable[String].map(_.map(${Enums.wrappingObjectName(definition.name, attribute.name)}.apply))"""
+      s"""(__ \\ "${attribute.name}").readNullable[${Enums.fqn(definition.name, attribute.name)}]"""
     }
 
     def generateWrite(attribute: ModelAttribute, forceOptional: Boolean = false): String = {
@@ -122,15 +141,11 @@ object JsonOps {
     }
 
     def generateWriteEnum(attribute: ModelAttribute): String = {
-      // Get is assumed to be safe in this case...
-      val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").write[String].contramap[${Enums.fqn(definition.name, attribute.name)}](_.name)"""
+      s"""(__ \\ "${attribute.name}").write[${Enums.fqn(definition.name, attribute.name)}]"""
     }
 
     def generateWriteNullableEnum(attribute: ModelAttribute): String = {
-      // Get is assumed to be safe in this case...
-      val enumValue = attribute.modeledEnum.get
-      s"""(__ \\ "${attribute.name}").writeNullable[String].contramap[Option[${Enums.fqn(definition.name, attribute.name)}]](_.map(_.name))"""
+      s"""(__ \\ "${attribute.name}").writeNullable[${Enums.fqn(definition.name, attribute.name)}]"""
     }
 
     val playJsonDeclType = if (definition.cyclicReferences.isEmpty) "val" else "def"
@@ -140,7 +155,7 @@ object JsonOps {
     val singleAttribute = attributes.size == 1
 
     def buildImplicits(namePrefix: String, forceOptional: Boolean) = {
-      if (attributes.size == 1) {
+      if (singleAttribute) {
         val attr = attributes.head
         s"""
            |  implicit $playJsonDeclType reads$namePrefix$name: Reads[$namePrefix$scalaName] =
