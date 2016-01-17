@@ -5,6 +5,7 @@ import io.swagger.models.properties.{ArrayProperty, ObjectProperty, Property}
 import swaggerboot.swaggerops._
 
 import scala.annotation.tailrec
+import scalaz.{\/-, -\/}
 
 object Definitions {
   case class SortingDefinition(md: ModelDefinition, references: Seq[String]) {
@@ -91,59 +92,50 @@ object Definitions {
    *
    * this gathers all parse errors as we go, and build up definitions using "replacements"
    */
-  def getSynthetics(swagger: Swagger): (Seq[ModelDefinition], Seq[ParseError]) = {
+  def getSynthetics(swagger: Swagger)(onError: ParseError => Unit): Seq[ModelDefinition] = {
 
     // FIXME delve into MapProperty.additionalProperties here also.
 
-    def makeDefinition(defName: String, prop: ObjectProperty): (ModelDefinition, Seq[ParseError]) = {
-      val attrsAndErrors = prop.propertiesMap.map { case (propName, prop) =>
-        val (scalaType, required, refname, error) = prop.scalaType(defName, propName).fold(
-          l = parseError => (parseError.replacement, parseError.required, None, Some(parseError)),
-          r = { case (stype, required, refname) => (stype, required, refname, None) }
-        )
-        (ModelAttribute(propName, prop.swaggerType, scalaType, required, refname, prop.modeledEnum), error)
-      }
-
+    def makeDefinition(defName: String, prop: ObjectProperty): ModelDefinition = {
       // FIXME - change this to retain attribute order as per Swagger input...
-      val (attrs, errors) = attrsAndErrors.foldLeft((Seq.empty[ModelAttribute], Seq.empty[ParseError])) {
-        case ((attrs, errors), (attr, errOpt)) =>
-          (attrs :+ attr, errOpt.fold(errors)(errors :+ _))
-      }
+      val attrs = prop.propertiesMap.map { case (propName, prop) =>
+        val (scalaType, required, refname) = prop.scalaType(defName, propName) match {
+          case -\/(parseError) =>
+            onError(parseError)
+            (parseError.replacement, parseError.required, None)
+          case \/-(x) => x
+        }
 
-      (ModelDefinition(defName, attrs.toList, false), errors)
+        ModelAttribute(propName, prop.swaggerType, scalaType, required, refname, prop.modeledEnum)
+      }
+      ModelDefinition(defName, attrs.toList, false)
     }
 
-    def recur(parentName: String, namedProperties: Seq[(String, Property)], defAcc: Seq[ModelDefinition] = Nil, errAcc: Seq[ParseError] = Nil): (Seq[ModelDefinition], Seq[ParseError]) = {
+    def recur(parentName: String, namedProperties: Seq[(String, Property)], defAcc: Seq[ModelDefinition] = Nil): Seq[ModelDefinition] = {
       namedProperties match {
-        case Nil => (defAcc, errAcc)
+        case Nil => defAcc
         case head +: tail =>
-          val (newDefs, newErrs) = head match {
+          val newDefs = head match {
             case (propName, oprop: ObjectProperty) =>
-              val (defs, errs) = recur(
-                syntheticModelName(parentName, propName),
-                oprop.propertiesMap().toSeq)
-              val (newDef, newErrors) = makeDefinition(syntheticModelName(parentName, propName), oprop)
-              (defs :+ newDef, errs ++ newErrors)
+              val defs = recur(syntheticModelName(parentName, propName), oprop.propertiesMap().toSeq)
+              val newDef = makeDefinition(syntheticModelName(parentName, propName), oprop)
+              defs :+ newDef
             case (propName, aprop: ArrayProperty) if aprop.getItems.isInstanceOf[ObjectProperty] =>
               val oprop = aprop.getItems.asInstanceOf[ObjectProperty]
-              val (defs, errs) = recur(
-                syntheticModelName(parentName, propName),
-                oprop.propertiesMap().toSeq)
-              val (newDef, newErrors) = makeDefinition(syntheticModelName(parentName, propName), oprop)
-              (defs :+ newDef, errs ++ newErrors)
+              val defs = recur(syntheticModelName(parentName, propName), oprop.propertiesMap().toSeq)
+              val newDef = makeDefinition(syntheticModelName(parentName, propName), oprop)
+              defs :+ newDef
             case _ =>
-              (Nil, Nil)
+              Nil
           }
-          recur(parentName, tail, defAcc ++ newDefs, errAcc ++ newErrs)
+          recur(parentName, tail, defAcc ++ newDefs)
       }
     }
 
     // FIXME - expand this to include synthetics to be derived from objects defined inline in responses - note, this may be blocked by the swagger parser logic...
 
-    swagger.definitionsMap.toList.foldLeft((Seq.empty[ModelDefinition], Seq.empty[ParseError])) {
-      case ((defsAcc, errAcc), (name, model)) =>
-        val (defs, errs) = recur(name, model.properties.toSeq)
-        (defsAcc ++ defs, errAcc ++ errs)
+    swagger.definitionsMap.toList.flatMap { case (name, model) =>
+      recur(name, model.properties.toSeq)
     }
   }
 

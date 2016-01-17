@@ -36,7 +36,7 @@ object Controller {
        |import api.models.JsonOps._
        |
        |class ${toScalaName(name)} $injectableParamList extends Controller {
-       |  ${methods.map(method => scalaImpl(method, methodToDelegate(method))).mkString("")}
+       |  ${methods.map(method => scalaImpl(name, method, methodToDelegate(method))).mkString("")}
        |}
      """.stripMargin
   }
@@ -54,7 +54,7 @@ object Controller {
     }
   }
 
-  private def scalaImpl(method: Method, delegate: MethodDelegate)(implicit config: Config, ids: Map[String, Id]): String = {
+  private def scalaImpl(controllerName: String, method: Method, delegate: MethodDelegate)(implicit config: Config, ids: Map[String, Id]): String = {
     val name = method.name
     val params = method.params
     val headerParams = method.headerParams
@@ -69,8 +69,8 @@ object Controller {
     }
 
     s"""
-        |  def ${toScalaName(name)}(${paramSigs(params)}) = Action.async$parsing { implicit request =>
-        |    ${if(headerParams.nonEmpty) headerParams.map(paramSig).mkString("// header: ", "\n    // header: ", "\n") else ""}
+        |  def ${toScalaName(name)}(${paramSigs(controllerName, params)}) = Action.async$parsing { implicit request =>
+        |    ${if(headerParams.nonEmpty) headerParams.map(paramSig(controllerName, _)).mkString("// header: ", "\n    // header: ", "\n") else ""}
         |    $dispatchLogic
         |  }
    """.stripMargin
@@ -81,22 +81,24 @@ object Controller {
     toScalaName(param.name.toLowerCase)
   }.mkString(", ")
 
-  def paramSigs(params: Seq[Param])(implicit ids: Map[String, Id]): String = params.map(paramSig).mkString(", ")
+  def paramSigs(controllerName: String, params: Seq[Param])(implicit ids: Map[String, Id]): String = params.map(paramSig(controllerName, _)).mkString(", ")
 
-  def paramType(param: Param)(implicit ids: Map[String, Id]) = {
-    ids.get(param.name).map { id =>
-      s"ids.${id.name}"
-    }.getOrElse(param.baseType)
+  def paramType(controllerName: String, param: Param)(implicit ids: Map[String, Id]) = {
+    (ids.get(param.name), param.modeledEnum) match {
+      case (Some(id), _)    => s"ids.${id.name}"
+      case (_, Some(menum)) => Enums.fqn(controllerName, param.name)
+      case (_, None)        => param.baseType
+    }
   }
 
-  private def paramSig(param: Param)(implicit ids: Map[String, Id]) = {
+  private def paramSig(controllerName: String, param: Param)(implicit ids: Map[String, Id]) = {
     val required = param.required
     val paramName = param.paramType match {
       case HeaderParam => param.name // Keep header params exactly as per API - only used in comments for now anyway.
       case _ => toScalaName(param.name.toLowerCase) // FIXME - should only lowercase the first char?
     }
 
-    val baseType = paramType(param)
+    val baseType = paramType(controllerName, param)
     val typeName = if (required) baseType else s"Option[$baseType]"
 
     (param.required, param.defaultValue) match {

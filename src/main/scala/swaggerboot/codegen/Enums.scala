@@ -1,15 +1,24 @@
 package swaggerboot.codegen
 
-import swaggerboot.{ModelDefinition, ModeledEnum}
+import swaggerboot.{Controller, ModelDefinition, ModeledEnum}
 
 object Enums {
 
-  def generate(packageName: String, definitions: Seq[ModelDefinition], allowUnknown: Boolean): String = {
-    val enumImpls: Seq[String] = for {
+  def generate(packageName: String, definitions: Seq[ModelDefinition], controllers: Seq[Controller], clientSide: Boolean): String = {
+    val definitionImpls = for {
       definition <- definitions
       attribute <- definition.attributes
       modeledEnum <- attribute.modeledEnum.toSeq
-    } yield generate(definition.name, attribute.name, modeledEnum, allowUnknown)
+    } yield generate(definition.name, attribute.name, modeledEnum, clientSide)
+
+    val controllerImpls = for {
+      controller  <- controllers
+      method      <- controller.methods
+      param       <- (method.params ++ method.headerParams)
+      modeledEnum <- param.modeledEnum.toSeq
+    } yield generate(controller.name, param.name, modeledEnum, false)
+
+    val enumImpls = (definitionImpls ++ controllerImpls).toSet
 
     s"""package $packageName
        |
@@ -30,20 +39,19 @@ object Enums {
      """.stripMargin
   }
 
-  def getAllNamed(definitions: Seq[ModelDefinition]): Seq[String] = {
-    for {
-      definition <- definitions
-      attribute <- definition.attributes
-      modeledEnum <- attribute.modeledEnum.toSeq
-    } yield wrappingObjectName(definition.name, attribute.name)
-  }
-
-  def enumObjectNames(definitions: Seq[ModelDefinition]): Set[String] = {
-    val names = for {
+  def enumObjectNames(definitions: Seq[ModelDefinition], controllers: Seq[Controller]): Set[String] = {
+    val definitionNames = for {
       definition <- definitions
       attribute <- definition.attributes if attribute.modeledEnum.nonEmpty
     } yield wrappingObjectName(definition.name, attribute.name)
-    names.toSet
+
+    val controllerNames = for {
+      controller <- controllers
+      method <- controller.methods
+      param <- method.params if param.modeledEnum.nonEmpty
+    } yield wrappingObjectName(controller.name, param.name)
+
+    (definitionNames ++ controllerNames).toSet
   }
 
   private def generate(definitionName: String, propertyName: String, modeledEnum: ModeledEnum, allowUnknown: Boolean): String = {
@@ -80,6 +88,8 @@ object Enums {
   private def sealedTraitName(definitionName: String, propertyName: String): String = munge(definitionName ++ (propertyName.head.toUpper +: propertyName.tail))
 
   def fqn(definitionName: String, propertyName: String): String = s"${wrappingObjectName(definitionName, propertyName)}.${sealedTraitName(definitionName, propertyName)}"
+
+  def fqValue(definitionName: String, propertyName: String, value: String): String = s"${wrappingObjectName(definitionName, propertyName)}.${munge(value)}"
 
   private def munge(name: String) = pascalCaseOf(name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", ""))
 }

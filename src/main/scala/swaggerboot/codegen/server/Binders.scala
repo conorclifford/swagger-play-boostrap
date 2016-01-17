@@ -1,10 +1,10 @@
 package swaggerboot.codegen.server
 
-import swaggerboot.ModelDefinition
+import swaggerboot.{Controller, ModelDefinition}
 import swaggerboot.codegen.{lowerFirst, Enums}
 
 object Binders {
-  def generate(definitions: Seq[ModelDefinition], includeStringCsv: Boolean) = {
+  def generate(definitions: Seq[ModelDefinition], controllers: Seq[Controller], includeStringCsv: Boolean) = {
     val stringCsvPathBinding = if (includeStringCsv) {
       s"""
          |implicit def stringSeqPathBindable(implicit stringBinder: PathBindable[String]) = new PathBindable[Seq[String]] {
@@ -42,7 +42,7 @@ object Binders {
          |  }
          |""".stripMargin
 
-    val enumQueryStringBindables = Enums.getAllNamed(definitions).map { case wrappingName =>
+    val definitionEnumQueryStringBindables = Enums.enumObjectNames(definitions, controllers).map { case wrappingName =>
       s"implicit def ${lowerFirst(wrappingName)}QueryStringBindable(implicit sb: QueryStringBindable[String]) = enumQueryStringBinder($wrappingName.apply)"
     }
 
@@ -76,7 +76,7 @@ object Binders {
        |  $stringCsvPathBinding
        |  $stringCsvQueryBinding
        |
-       |  ${enumQueryStringBindables.mkString("\n  ")}
+       |  ${definitionEnumQueryStringBindables.mkString("\n  ")}
        |
        |  $enumQueryStringBinderCreator
        |}

@@ -21,12 +21,13 @@ object ControllerDelegateTraits {
        |  ${
             delegate.methods.map { method =>
               val requestType = method.method.body.fold("RequestHeader")(_ => "Request[play.api.libs.json.JsValue]")
-              s"def ${toScalaName(method.functionName)}(${paramList(method)})(implicit request: play.api.mvc.$requestType): scala.concurrent.Future[play.api.mvc.Result]"
+              s"def ${toScalaName(method.functionName)}(${paramList(delegate.className, method)})(implicit request: play.api.mvc.$requestType): scala.concurrent.Future[play.api.mvc.Result]"
             }.mkString("\n  ")
           }
        |}
      """.stripMargin
   }
 
-  private def paramList(delegate: MethodDelegate)(implicit ids: Map[String, Id]): String = Controller.paramSigs(delegate.method.params)
+  private def paramList(controllerName: String, delegate: MethodDelegate)(implicit ids: Map[String, Id]) =
+    Controller.paramSigs(controllerName, delegate.method.params)
 }

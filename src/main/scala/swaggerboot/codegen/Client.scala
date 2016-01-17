@@ -47,17 +47,17 @@ object Client {
 
   private def clientTrait(controller: Controller)(implicit ids: Map[String, Id]) =
     s"""trait ${controller.name}Client {
-        |  ${controller.methods.map(clientSignature).mkString("\n  ")}
+        |  ${controller.methods.map(clientSignature(controller.name, _)).mkString("\n  ")}
         |}
      """.stripMargin
 
   private def clientImpl(controller: Controller, generatePlay23Code: Boolean)(implicit ids: Map[String, Id]) =
     s"""object ${controller.name}Client extends ${controller.name}Client {
-        |${Indenter.indent(controller.methods.map(clientMethod(_, generatePlay23Code)).mkString("\n"))}
+        |${Indenter.indent(controller.methods.map(clientMethod(controller.name, _, generatePlay23Code)).mkString("\n"))}
         |}
      """.stripMargin
 
-  private def clientSignature(method: Method)(implicit ids: Map[String, Id]): String = {
+  private def clientSignature(controllerName: String, method: Method)(implicit ids: Map[String, Id]): String = {
     val returnTypeMap: Map[Int, ReturnType] = method.returnValues.flatMap {
       case ReturnValue(rcode, _, rtype) => rtype.map(rcode -> _)
     }.toMap
@@ -84,16 +84,16 @@ object Client {
       }
     }.map { bt => s"body: $bt" }
 
-    def paramSig(param: Param)(implicit ids: Map[String, Id]) = {
-      def paramType(param: Param) = {
-        ids.get(param.name).map { id =>
-          s"ids.${id.name}"
-        }.getOrElse {
-          param.baseType
+    def paramSig(controllerName: String, param: Param)(implicit ids: Map[String, Id]) = {
+      def paramType() = {
+        (ids.get(param.name), param.modeledEnum) match {
+          case (Some(id), _)    => s"ids.${id.name}"
+          case (_, Some(menum)) => Enums.fqn(controllerName, param.name)
+          case (_, None)        => param.baseType
         }
       }
 
-      val baseType = paramType(param)
+      val baseType = paramType()
       val typeName = if (param.required) baseType else s"Option[${baseType}]"
       s"${param.scalaName}: $typeName"
     }
@@ -104,12 +104,12 @@ object Client {
       None
     }
 
-    val mandatoryParams = method.params.filter(_.required).map(p => Some(paramSig(p))) :+ bodyParam
-    val optionalParams = method.params.filterNot(_.required).map(p => Some(s"${paramSig(p)} = None"))
+    val mandatoryParams = method.params.filter(_.required).map(p => Some(paramSig(controllerName, p))) :+ bodyParam
+    val optionalParams = method.params.filterNot(_.required).map(p => Some(s"${paramSig(controllerName, p)} = None"))
     val parameters =
       ( mandatoryParams ++
         optionalParams ++
-        method.headerParams.map(p => Some(paramSig(p)))
+        method.headerParams.map(p => Some(paramSig(controllerName, p)))
       ).flatten ++ contentTypeParam.toSeq
 
     s"""def ${method.name}(${parameters.mkString(", ")})(implicit ec: ExecutionContext, requestTimeout: RequestTimeout): Future[Result.Error[$ftype] \\/ Result.Success[$stype]]"""
@@ -122,7 +122,7 @@ object Client {
     }
   }
 
-  def clientMethod(method: Method, generatePlay23Code: Boolean)(implicit ids: Map[String, Id]): String = {
+  def clientMethod(controllerName: String, method: Method, generatePlay23Code: Boolean)(implicit ids: Map[String, Id]): String = {
 
     def paramName(param: Param) = param.scalaName
 
@@ -145,8 +145,8 @@ object Client {
            |  val queryParams = Seq(
            |    ${
           method.params.filter(_.paramType == QueryParam).map {
-            case param @ Param(name, _, required, _, _) if required => s"""Some("$name" -> ${paramName(param)}.toString)"""
-            case param @ Param(name, _, required, _, _) if !required => s"""${paramName(param)}.map("$name" -> _.toString)"""
+            case param @ Param(name, _, required, _, _, _) if required => s"""Some("$name" -> ${paramName(param)}.toString)"""
+            case param @ Param(name, _, required, _, _, _) if !required => s"""${paramName(param)}.map("$name" -> _.toString)"""
           }.mkString(",\n    ")}
            |  ).flatten
            |"""
@@ -198,7 +198,7 @@ object Client {
     }
 
 
-    s"""${clientSignature(method)} = {
+    s"""${clientSignature(controllerName, method)} = {
        |  $contentTypeCheck
        |  val headers = Seq(
        |    $contentTypeHeader${if (includeContentType(method) && method.headerParams.nonEmpty) ",\n    " else ""}${method.headerParams.map(toHeader).mkString("", ",\n    ", "\n  ")}).flatten

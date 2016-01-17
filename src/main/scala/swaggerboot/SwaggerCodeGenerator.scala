@@ -113,12 +113,12 @@ object SwaggerCodeGenerator extends App {
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate("api", "models", swaggerRep.modelDefinitions))
+      _.println(codegen.JsonOps.generate("api", "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
       // Disallowing unknown values in enum in server mode..
-      _.println(codegen.Enums.generate("api.models", swaggerRep.modelDefinitions, false))
+      _.println(codegen.Enums.generate("api.models", swaggerRep.modelDefinitions, swaggerRep.controllers, false))
     }
 
     if (config.stubFullPlayApp) {
@@ -138,7 +138,7 @@ object SwaggerCodeGenerator extends App {
         _.println(codegen.server.BuildSbt.generate(swaggerRep.title))
       }
       writingToFile(new File(bindersDir, "package.scala")) {
-        _.println(codegen.server.Binders.generate(swaggerRep.modelDefinitions, swaggerRep.containsCsvParams))
+        _.println(codegen.server.Binders.generate(swaggerRep.modelDefinitions, swaggerRep.controllers, swaggerRep.containsCsvParams))
       }
 
       writingToFile(new File(publicDir, "swagger.json")) {
@@ -180,12 +180,12 @@ object SwaggerCodeGenerator extends App {
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate(clienPackageFqn, "models", swaggerRep.modelDefinitions))
+      _.println(codegen.JsonOps.generate(clienPackageFqn, "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
       // Allow unknown values in enum in client mode..
-      _.println(codegen.Enums.generate(s"$clienPackageFqn.models", swaggerRep.modelDefinitions, true))
+      _.println(codegen.Enums.generate(s"$clienPackageFqn.models", swaggerRep.modelDefinitions, swaggerRep.controllers, true))
     }
 
     writingToFile(new File(clientDir, "Client.scala")) {
