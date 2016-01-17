@@ -1,6 +1,6 @@
 package swaggerboot.codegen
 
-import swaggerboot.swaggerops.Id
+import swaggerboot.Id
 import swaggerboot.{ModelAttribute, ModelDefinition}
 
 object Models {

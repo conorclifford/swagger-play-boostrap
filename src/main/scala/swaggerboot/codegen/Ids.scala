@@ -1,10 +1,9 @@
 package swaggerboot.codegen
 
-import io.swagger.models.Swagger
-import swaggerboot.swaggerops._
+import swaggerboot.SwaggerRep
 
 object Ids {
-  def generatePackageObject(parentPackageName: String, swagger: Swagger): String = {
+  def generatePackageObject(parentPackageName: String, swagger: SwaggerRep): String = {
     val ids = swagger.ids
 
     s"""
@@ -16,7 +15,7 @@ object Ids {
        |""".stripMargin
   }
 
-  def generate(packageName: String, swagger: Swagger): String = {
+  def generate(packageName: String, swagger: SwaggerRep): String = {
     val ids = swagger.ids
 
     s"""

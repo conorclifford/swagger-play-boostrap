@@ -29,21 +29,7 @@ package object swaggerops {
       }
     }
 
-    def containsCsvParams(): Boolean = {
-      routedControllers().exists(_.controller.methods.exists(_.params.exists(_.baseType == "Seq[String]")))
-    }
-
     def securityDefinitions(): Map[String, SecuritySchemeDefinition] = Option(swagger.getSecurityDefinitions).map(_.asScala.toMap).getOrElse(Map.empty)
-
-    def definitions(cyclicWarning: String => Unit = _ => ()): Seq[ModelDefinition] = {
-      val (sorted, cyclicDefs) = Definitions.order(definitionsWithErrors._1.toSeq)(cyclicWarning)
-      val cyclicRefsByName = cyclicDefs.map(d => d.name -> d.referencedNames).toMap
-      sorted.map(_.md).map { md =>
-        md.copy(cyclicReferences = cyclicRefsByName.get(md.name))
-      }
-    }
-
-    def ids(): Map[String, Id] = Id.ids(swagger)
 
     def definitionsWithErrors(): (Iterable[ModelDefinition], Iterable[ParseError]) = {
       val typesForPatching = routedControllers.flatMap(_.controller.methods.filter(_.httpMethod == "PATCH").flatMap(_.bodyType)).toSet
@@ -80,13 +66,6 @@ package object swaggerops {
     def definitionsMap: Map[String, Model] = Option(swagger.getDefinitions).map(_.asScala).getOrElse(Map.empty).toMap
 
     def basePath: Option[String] = Option(swagger.getBasePath)
-
-    def controllers(): Seq[Controller] = {
-      swagger.routedControllers.groupBy(_.controller.name).map {
-        case (name, rcontrollers) =>
-          Controller(name, rcontrollers.flatMap(_.controller.methods))
-      }.toSeq
-    }
   }
 
   implicit class ModelOps(val model: Model) extends AnyVal {
@@ -94,7 +73,7 @@ package object swaggerops {
   }
 
   implicit class ObjectPropertyOps(val prop: ObjectProperty) extends AnyVal {
-    def propertiesMap(): Map[String, Property] = Option(prop.getProperties).map(_.asScala).getOrElse(Map.empty).toMap
+    def propertiesMap(): Map[String, Property] = Option(prop.getProperties).map(_.asScala.toMap).getOrElse(Map.empty)
   }
 
   implicit class PropertyOps(val property: Property) extends AnyVal {
@@ -168,7 +147,9 @@ package object swaggerops {
     def PATCH(): Option[NamedOperation] = Option(path.getPatch()).map("PATCH" -> _)
     def POST(): Option[NamedOperation] = Option(path.getPost()).map("POST" -> _)
     def DELETE(): Option[NamedOperation] = Option(path.getDelete()).map("DELETE" -> _)
+
     def operations(): Seq[NamedOperation] = Seq(GET, PUT, PATCH, POST, DELETE).flatten
+
     def parameters(): Seq[Parameter] = Option(path.getParameters).map(_.asScala).getOrElse(Nil)
 
     def toController(swagger: Swagger, basePath: Option[String], pathStr: String): (RoutedController, Seq[ParseError]) = {
@@ -359,47 +340,4 @@ package object swaggerops {
         ParseError("Unsupported parameter type '$x'", replacement = s"FIXME[$x]").left
     }
   }
-
-  case class Id(tag: String, name: String, scalaType: String)
-
-  private object Id {
-    private val AppropriateTypes = Set("String", "Long", "Int")
-    private val AppropriateSeqTypes = AppropriateTypes.map(t => s"Seq[$t]")
-
-    def apply(attrName: String, scalaType: String): Option[Id] = {
-      import swaggerboot.codegen._
-      val name = toPascalCaseScalaName(attrName)
-      if (attrName.endsWith("_id") && AppropriateTypes.contains(scalaType)) {
-        val tag = toPascalCaseScalaName(attrName.replaceAll("_id$", ""))
-        Option(Id(tag, name, scalaType))
-      } else if (attrName.endsWith("_ids") && AppropriateSeqTypes.contains(scalaType)) {
-        val tag = toPascalCaseScalaName(attrName.replaceAll("_ids$", ""))
-        Option(Id(tag, name.dropRight(1), scalaType.drop(4).dropRight(1)))
-      } else {
-        None
-      }
-    }
-
-    def ids(swagger: Swagger): Map[String, Id] = {
-      def nameOf(defn: ModelDefinition, attr: ModelAttribute) = attr.name match {
-        case _ if attr.name == "id" => s"${defn.name}_id"
-        case _                      => attr.name
-      }
-
-      val fromDefinitions = for {
-        definition <- swagger.definitions()
-        attribute  <- definition.attributes
-        name        = if (attribute.name == "id") s"${definition.name}_id" else attribute.name
-      } yield Id(nameOf(definition, attribute), attribute.scalaType).map(name -> _)
-
-      val fromControllers = for {
-        controller <- swagger.controllers()
-        method     <- controller.methods
-        parameter  <- method.params ++ method.headerParams
-      } yield Id(parameter.name, parameter.baseType).map(parameter.name -> _)
-
-      (fromDefinitions ++ fromControllers).flatten.toMap
-    }
-  }
-
 }

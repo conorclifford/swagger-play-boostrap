@@ -1,7 +1,7 @@
 package swaggerboot.codegen.server
 
 import swaggerboot.SwaggerCodeGenerator.Config
-import swaggerboot.swaggerops.Id
+import swaggerboot.Id
 import swaggerboot.{Method, Param, RoutedController}
 
 object Routes {

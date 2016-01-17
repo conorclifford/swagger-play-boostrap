@@ -1,7 +1,7 @@
 package swaggerboot.codegen
 
 import swaggerboot._
-import swaggerboot.swaggerops.Id
+import swaggerboot.Id
 
 object Client {
   def generate(packageName: String, controllers: Seq[Controller], generatePlay23Code: Boolean)(implicit ids: Map[String, Id]): String = {

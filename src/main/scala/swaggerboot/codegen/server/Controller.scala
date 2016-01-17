@@ -3,7 +3,7 @@ package swaggerboot.codegen.server
 import swaggerboot.SwaggerCodeGenerator.Config
 import swaggerboot._
 import swaggerboot.codegen._
-import swaggerboot.swaggerops.Id
+import swaggerboot.Id
 
 object Controller {
   def generate(controller: Controller)(implicit config: Config, ids: Map[String, Id]): String = {

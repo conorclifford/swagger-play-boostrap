@@ -1,7 +1,7 @@
 package swaggerboot.codegen.server
 
 import swaggerboot.codegen._
-import swaggerboot.swaggerops.Id
+import swaggerboot.Id
 import swaggerboot.{ControllerDelegate, MethodDelegate}
 
 object ControllerDelegateTraits {
