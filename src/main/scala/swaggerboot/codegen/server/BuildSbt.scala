@@ -39,7 +39,9 @@ object BuildSbt {
        |routesGenerator := InjectedRoutesGenerator
        |
        |routesImport := Seq(
-       |  "binders._"
+       |  "binders._",
+       |  "api.models._",
+       |  "api.ids"
        |)
      """.stripMargin
   }

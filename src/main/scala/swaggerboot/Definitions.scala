@@ -148,6 +148,6 @@ object Definitions {
   }
 
   def syntheticModelName(parentName: String, propertyName: String): String = {
-    s"${codegen.camelOf(parentName)}${codegen.camelOf(propertyName)}"
+    s"${codegen.pascalCaseOf(parentName)}${codegen.pascalCaseOf(propertyName)}"
   }
 }

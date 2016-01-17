@@ -8,6 +8,7 @@ import io.swagger.parser.SwaggerParser
 import io.swagger.util.Json
 import org.apache.commons.io.FileUtils
 import org.yaml.snakeyaml.Yaml
+import swaggerboot.codegen.Ids
 
 import swaggerops._
 
@@ -54,19 +55,13 @@ object SwaggerCodeGenerator extends App {
     println(s"WARN - $defnName will be generated as 'def' in JsonOps (due to detected potential circular reference)")
   }
 
-  // FIXME
-//  swagger.securityDefinitions.foreach {
-//    case (name, oauth2: OAuth2Definition) =>
-//      println(s"Security defn: OAUTH2: name = $name, flow = ${oauth2.getFlow}, scopes = ${oauth2.getScopes}")
-//    case (name, obj) =>
-//      println(s"Security defn: ${obj.getClass.getName}, name = $name")
-//  }
-
   // Get the errors first, and log to stderr.
   (swagger.routedControllersWithErrors()._2 ++ swagger.definitionsWithErrors()._2).foreach {
     case ParseError(msg, replacement, _) =>
       System.err.println(s"WARN - $msg - Replaced actual generated code with '$replacement'")
   }
+
+  implicit val ids = swagger.ids()
 
   def createDirsWithCheck(dirs: File*) = {
     dirs.map { dir =>
@@ -87,13 +82,15 @@ object SwaggerCodeGenerator extends App {
     val appDir = new File(config.outputDir, "app")
     val controllersDir = new File(appDir, "controllers")
     val delegateTraitsDir = new File(controllersDir, "delegates")
-    val modelsDir = new File(appDir, "models")
+    val apiDir = new File(appDir, "api")
+    val modelsDir = new File(apiDir, "models")
+    val idsDir = new File(apiDir, "ids")
 
     val projectDir = new File(config.outputDir, "project")
     val bindersDir = new File(appDir, "binders")
     val publicDir = new File(config.outputDir, "public")
 
-    createDirsWithCheck(confDir, controllersDir, delegateTraitsDir, modelsDir)
+    createDirsWithCheck(confDir, controllersDir, delegateTraitsDir, apiDir, modelsDir, idsDir)
     if (config.stubFullPlayApp) {
       createDirsWithCheck(projectDir, bindersDir, publicDir)
     }
@@ -124,17 +121,25 @@ object SwaggerCodeGenerator extends App {
     // Generate warnings on cycles
     swagger.definitions(logCyclicDefinitionWarning)
 
+    writingToFile(new File(idsDir, "package.scala")) {
+      _.println(codegen.Ids.generatePackageObject("api", swagger))
+    }
+
+    writingToFile(new File(idsDir, "Id.scala")) {
+      _.println(codegen.Ids.generate("api", swagger))
+    }
+
     writingToFile(new File(modelsDir, "Models.scala")) {
-      _.println(codegen.Models.generate("models", swagger.definitions()))
+      _.println(codegen.Models.generate("api", "models", swagger.definitions()))
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate("models", swagger.definitions()))
+      _.println(codegen.JsonOps.generate("api", "models", swagger.definitions()))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
       // Disallowing unknown values in enum in server mode..
-      _.println(codegen.Enums.generate("models", swagger.definitions(), false))
+      _.println(codegen.Enums.generate("api.models", swagger.definitions(), false))
     }
 
     if (config.stubFullPlayApp) {
@@ -154,7 +159,7 @@ object SwaggerCodeGenerator extends App {
         _.println(codegen.server.BuildSbt.generate(title))
       }
       writingToFile(new File(bindersDir, "package.scala")) {
-        _.println(codegen.server.Binders.generate(swagger.containsCsvParams))
+        _.println(codegen.server.Binders.generate(swagger.definitions(), swagger.containsCsvParams))
       }
 
       writingToFile(new File(publicDir, "swagger.json")) {
@@ -172,33 +177,43 @@ object SwaggerCodeGenerator extends App {
 
     val clientPackageName = title.replace(".", "").replace(" ", "_").toLowerCase
     val clientDir = new File(new File(config.outputDir, "clients"), clientPackageName)
+    val modelsDir = new File(clientDir, "models")
+    val idsDir = new File(clientDir, "ids")
 
     if (clientDir.isDirectory && config.replace) {
       FileUtils.deleteDirectory(clientDir)
     }
 
-    createDirsWithCheck(clientDir)
+    createDirsWithCheck(clientDir, modelsDir, idsDir)
 
-    val clientModelPackageFqn = s"clients.$clientPackageName"
+    val clienPackageFqn = s"clients.$clientPackageName"
 
     // Generate warnings on cycles.
     swagger.definitions(logCyclicDefinitionWarning)
 
-    writingToFile(new File(clientDir, "Models.scala")) {
-      _.println(codegen.Models.generate(clientModelPackageFqn, swagger.definitions()))
+    writingToFile(new File(idsDir, "package.scala")) {
+      _.println(codegen.Ids.generatePackageObject(clienPackageFqn, swagger))
     }
 
-    writingToFile(new File(clientDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate(clientModelPackageFqn, swagger.definitions()))
+    writingToFile(new File(idsDir, "Id.scala")) {
+      _.println(codegen.Ids.generate(clienPackageFqn, swagger))
+    }
+
+    writingToFile(new File(modelsDir, "Models.scala")) {
+      _.println(codegen.Models.generate(clienPackageFqn, "models", swagger.definitions()))
+    }
+
+    writingToFile(new File(modelsDir, "JsonOps.scala")) {
+      _.println(codegen.JsonOps.generate(clienPackageFqn, "models", swagger.definitions()))
+    }
+
+    writingToFile(new File(modelsDir, "Enums.scala")) {
+      // Allow unknown values in enum in client mode..
+      _.println(codegen.Enums.generate(s"$clienPackageFqn.models", swagger.definitions(), true))
     }
 
     writingToFile(new File(clientDir, "Client.scala")) {
-      _.println(codegen.Client.generate(clientModelPackageFqn, swagger.controllers(), config.generatePlay23Code))
-    }
-
-    writingToFile(new File(clientDir, "Enums.scala")) {
-      // Allow unknown values in enum in client mode..
-      _.println(codegen.Enums.generate(clientModelPackageFqn, swagger.definitions(), true))
+      _.println(codegen.Client.generate(clienPackageFqn, swagger.controllers(), config.generatePlay23Code))
     }
   }
 

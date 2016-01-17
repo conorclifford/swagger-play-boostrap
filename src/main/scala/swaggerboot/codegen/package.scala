@@ -17,14 +17,13 @@ package object codegen {
     }
   }
 
-  def toCamelScalaName(n: String) = {
-    val transformed = camelOf(n.replace("-", "_"))
-    toScalaName(lowerFirst(transformed))
-  }
+  def toCamelScalaName(n: String) = toScalaName(camelCaseOf(n.replace("-", "_")))
 
-  def camelOf(name: String): String = {
-    name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
-  }
+  def toPascalCaseScalaName(n: String) = toScalaName(pascalCaseOf(n.replace("-", "_")))
+
+  def camelCaseOf(name: String): String = lowerFirst(pascalCaseOf(name))
+
+  def pascalCaseOf(name: String): String = name.split("_").map { s => s.head.toString.toUpperCase ++ s.tail}.mkString("")
 
   def lowerFirst(str: String): String = str.take(1).toLowerCase ++ str.tail
 }

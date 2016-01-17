@@ -21,13 +21,21 @@ object Enums {
        |}
        |case class BadValue(message: String) extends EnumError
        |
-       |private[models] sealed trait NamedEnum {
+       |sealed trait NamedEnum {
        |  def name: String
        |  override def toString(): String = name
        |}
        |
        |${enumImpls.mkString("\n")}
      """.stripMargin
+  }
+
+  def getAllNamed(definitions: Seq[ModelDefinition]): Seq[String] = {
+    for {
+      definition <- definitions
+      attribute <- definition.attributes
+      modeledEnum <- attribute.modeledEnum.toSeq
+    } yield wrappingObjectName(definition.name, attribute.name)
   }
 
   def enumObjectNames(definitions: Seq[ModelDefinition]): Set[String] = {
@@ -73,5 +81,5 @@ object Enums {
 
   def fqn(definitionName: String, propertyName: String): String = s"${wrappingObjectName(definitionName, propertyName)}.${sealedTraitName(definitionName, propertyName)}"
 
-  private def munge(name: String) = camelOf(name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", ""))
+  private def munge(name: String) = pascalCaseOf(name.replaceAll("-", "_").replaceAll(" ", "_").replaceAll("[^a-zA-Z0-9_]", ""))
 }

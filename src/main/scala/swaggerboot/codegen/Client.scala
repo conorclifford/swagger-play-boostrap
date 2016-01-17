@@ -1,9 +1,10 @@
 package swaggerboot.codegen
 
 import swaggerboot._
+import swaggerboot.swaggerops.Id
 
 object Client {
-  def generate(packageName: String, controllers: Seq[Controller], generatePlay23Code: Boolean): String = {
+  def generate(packageName: String, controllers: Seq[Controller], generatePlay23Code: Boolean)(implicit ids: Map[String, Id]): String = {
     def toIdentifier(name: String) = name.head.toLower +: name.tail
 
     s"""//
@@ -17,6 +18,9 @@ object Client {
         |import scala.concurrent.{ExecutionContext, Future}
         |import scalaz._
         |import Scalaz._
+        |
+        |import models._
+        |import JsonOps._
         |
         |object Result {
         |  case class Success[B](responseCode: Int, message: Option[String], body: Option[B] = None, rawResponse: play.api.libs.ws.WSResponse)
@@ -41,19 +45,19 @@ object Client {
        """.stripMargin
   }
 
-  private def clientTrait(controller: Controller) =
+  private def clientTrait(controller: Controller)(implicit ids: Map[String, Id]) =
     s"""trait ${controller.name}Client {
         |  ${controller.methods.map(clientSignature).mkString("\n  ")}
         |}
      """.stripMargin
 
-  private def clientImpl(controller: Controller, generatePlay23Code: Boolean) =
+  private def clientImpl(controller: Controller, generatePlay23Code: Boolean)(implicit ids: Map[String, Id]) =
     s"""object ${controller.name}Client extends ${controller.name}Client {
         |${Indenter.indent(controller.methods.map(clientMethod(_, generatePlay23Code)).mkString("\n"))}
         |}
      """.stripMargin
 
-  private def clientSignature(method: Method): String = {
+  private def clientSignature(method: Method)(implicit ids: Map[String, Id]): String = {
     val returnTypeMap: Map[Int, ReturnType] = method.returnValues.flatMap {
       case ReturnValue(rcode, _, rtype) => rtype.map(rcode -> _)
     }.toMap
@@ -80,8 +84,17 @@ object Client {
       }
     }.map { bt => s"body: $bt" }
 
-    def paramSig(param: Param) = {
-      val typeName = if (param.required) param.baseType else s"Option[${param.baseType}]"
+    def paramSig(param: Param)(implicit ids: Map[String, Id]) = {
+      def paramType(param: Param) = {
+        ids.get(param.name).map { id =>
+          s"ids.${id.name}"
+        }.getOrElse {
+          param.baseType
+        }
+      }
+
+      val baseType = paramType(param)
+      val typeName = if (param.required) baseType else s"Option[${baseType}]"
       s"${param.scalaName}: $typeName"
     }
 
@@ -109,7 +122,7 @@ object Client {
     }
   }
 
-  def clientMethod(method: Method, generatePlay23Code: Boolean): String = {
+  def clientMethod(method: Method, generatePlay23Code: Boolean)(implicit ids: Map[String, Id]): String = {
 
     def paramName(param: Param) = param.scalaName
 

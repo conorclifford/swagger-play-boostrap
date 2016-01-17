@@ -1,11 +1,12 @@
 package swaggerboot.codegen.server
 
 import swaggerboot.SwaggerCodeGenerator.Config
+import swaggerboot.swaggerops.Id
 import swaggerboot.{Method, Param, RoutedController}
 
 object Routes {
 
-  def generate(controllers: Seq[RoutedController])(implicit config: Config): String = {
+  def generate(controllers: Seq[RoutedController])(implicit config: Config, ids: Map[String, Id]): String = {
     val generatedRoutes = controllers.sortBy(_.path).map { routed =>
       val routesFileEntries: Seq[String] = {
         val controller = routed.controller
@@ -32,11 +33,19 @@ object Routes {
      """.stripMargin
   }
 
-  private def routeFileEntry(method: Method, path: String, controllerName: String) = {
+  private def routeFileEntry(method: Method, path: String, controllerName: String)(implicit ids: Map[String, Id]) = {
     s"${method.httpMethod} \t$path \tcontrollers.$controllerName.${method.name}(${method.params.map(playRouteParam).mkString(", ")})"
   }
 
-  private def playRouteParam(param: Param) = {
+  def paramType(param: Param)(implicit ids: Map[String, Id]) = {
+    ids.get(param.name).map { id =>
+      s"ids.${id.name}"
+    }.getOrElse {
+      param.baseType
+    }
+  }
+
+  private def playRouteParam(param: Param)(implicit ids: Map[String, Id]) = {
     def defaultValueToString(defval: String): String = param.baseType match {
       case "String" => s""""$defval""""
       case _ => defval
@@ -45,10 +54,13 @@ object Routes {
     param.defaultValue.fold {
       s"${paramName(param)}: ${typeName(param)}"
     } { defval =>
-      s"${paramName(param)}: ${param.baseType} ?= ${defaultValueToString(defval)}"
+      s"${paramName(param)}: ${paramType(param)} ?= ${defaultValueToString(defval)}"
     }
   }
 
-  def typeName(param: Param) = if (param.required) param.baseType else s"Option[${param.baseType}]"
+  def typeName(param: Param)(implicit ids: Map[String, Id]) = {
+    if (param.required) paramType(param) else s"Option[${paramType(param)}]"
+  }
+
   def paramName(param: Param) = param.name.toLowerCase
 }
