@@ -19,7 +19,8 @@ object SwaggerCodeGenerator extends App {
                     generatePlay23Code: Boolean = false,
                     generateDelegates: Boolean = false,
                     stubFullPlayApp: Boolean = false,
-                    withHealthCheck: Boolean = false)
+                    withHealthCheck: Boolean = false,
+                    providedIdClass: Option[String] = None)
 
   val parser = new scopt.OptionParser[Config]("SwaggerCodeGenerator"){
     opt[File]("api") action { case (x, c) => c.copy(swaggerSpec = x) } required() maxOccurs(1) text("Swagger API specification (JSON or YAML)")
@@ -30,6 +31,7 @@ object SwaggerCodeGenerator extends App {
     opt[Unit]("withdelegates") action { case (_, c) => c.copy(generateDelegates = true) } text("request the generated server code use experimental 'delegate' workflow, where service author must implement 'logic.*' classes, etc.")
     opt[Unit]("fullplaystub") action { case (_, c) => c.copy(stubFullPlayApp = true) } text("generate a stub for a full play app, including SBT, configuration, etc.")
     opt[Unit]("healthcheck") action { case (_, c) => c.copy(withHealthCheck = true) } text("Include simple healthcheck support (server only)")
+    opt[String]("providedIdClass") action { case (s, c) => c.copy(providedIdClass = Option(s"_root_.$s")) } text("Specify a provided/existing fully qualified name for the 'Id' class to be used in generated code. If not specified a new 'Id' class will be generated")
     checkConfig { c =>
       if (c.genServerCode && c.replace) failure("Cannot replace code in server mode")
       else if (c.genServerCode && c.generatePlay23Code) failure("cannot generate play23 code in server mode")
@@ -101,11 +103,11 @@ object SwaggerCodeGenerator extends App {
     }
 
     writingToFile(new File(idsDir, "package.scala")) {
-      _.println(codegen.Ids.generatePackageObject("api", swaggerRep))
+      _.println(codegen.Ids.generatePackageObject(providedIdClass = config.providedIdClass, "api", swaggerRep))
     }
 
     writingToFile(new File(idsDir, "Id.scala")) {
-      _.println(codegen.Ids.generate("api", swaggerRep))
+      _.println(codegen.Ids.generate(providedIdClass = config.providedIdClass, "api", swaggerRep))
     }
 
     writingToFile(new File(modelsDir, "Models.scala")) {
@@ -113,7 +115,7 @@ object SwaggerCodeGenerator extends App {
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate("api", "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
+      _.println(codegen.JsonOps.generate(providedIdClass = config.providedIdClass, "api", "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
@@ -168,11 +170,11 @@ object SwaggerCodeGenerator extends App {
     val clienPackageFqn = s"clients.$clientPackageName"
 
     writingToFile(new File(idsDir, "package.scala")) {
-      _.println(codegen.Ids.generatePackageObject(clienPackageFqn, swaggerRep))
+      _.println(codegen.Ids.generatePackageObject(providedIdClass = config.providedIdClass, clienPackageFqn, swaggerRep))
     }
 
     writingToFile(new File(idsDir, "Id.scala")) {
-      _.println(codegen.Ids.generate(clienPackageFqn, swaggerRep))
+      _.println(codegen.Ids.generate(providedIdClass = config.providedIdClass, clienPackageFqn, swaggerRep))
     }
 
     writingToFile(new File(modelsDir, "Models.scala")) {
@@ -180,7 +182,7 @@ object SwaggerCodeGenerator extends App {
     }
 
     writingToFile(new File(modelsDir, "JsonOps.scala")) {
-      _.println(codegen.JsonOps.generate(clienPackageFqn, "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
+      _.println(codegen.JsonOps.generate(providedIdClass = config.providedIdClass, clienPackageFqn, "models", swaggerRep.modelDefinitions, swaggerRep.controllers))
     }
 
     writingToFile(new File(modelsDir, "Enums.scala")) {
